@@ -4,6 +4,8 @@ import DashboardLayout from './components/layout/DashboardLayout';
 import DashboardPage from './pages/DashboardPage';
 import InventoryPage from './pages/InventoryPage';
 import SalesPage from './pages/SalesPage';
+import SuppliersPage from './pages/SuppliersPage';
+import PurchasesPage from './pages/PurchasesPage';
 import SettingsPage from './pages/SettingsPage';
 
 export const App: React.FC = () => {
@@ -14,6 +16,8 @@ export const App: React.FC = () => {
           <Route index element={<DashboardPage />} />
           <Route path="inventory" element={<InventoryPage />} />
           <Route path="sales" element={<SalesPage />} />
+          <Route path="suppliers" element={<SuppliersPage />} />
+          <Route path="purchases" element={<PurchasesPage />} />
           <Route path="settings" element={<SettingsPage />} />
 
           {/* Any other route redirects to Dashboard */}

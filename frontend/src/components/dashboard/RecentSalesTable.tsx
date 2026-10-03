@@ -67,15 +67,17 @@ export const RecentSalesTable: React.FC<RecentSalesTableProps> = ({ sales }) => 
               {sales.map((sale) => (
                 <tr key={sale.id} className="hover:bg-gray-50/70 transition-colors">
                   <td className="py-3 px-2">
-                    <p className="font-semibold text-gray-800">{sale.medicineName}</p>
-                    {sale.batchesDeducted && sale.batchesDeducted.length > 0 && (
-                      <p className="text-[10px] text-gray-400">
-                        Batch: {sale.batchesDeducted.map((b) => b.batchNumber).join(', ')} (FEFO)
-                      </p>
-                    )}
+                    <p className="font-semibold text-gray-800">
+                      {sale.items && sale.items.length > 0
+                        ? `${sale.items[0].medicineName}${sale.items.length > 1 ? ` + ${sale.items.length - 1} more` : ''}`
+                        : (sale.medicineName || 'Medicine Sale')}
+                    </p>
+                    <p className="text-[10px] text-gray-400">
+                      {sale.saleNumber || sale.id} • {sale.customerName || 'Walk-in Customer'}
+                    </p>
                   </td>
                   <td className="py-3 px-2 text-center font-medium text-gray-700">
-                    {sale.quantity} units
+                    {sale.totalQuantity ?? sale.quantity} units
                   </td>
                   <td className="py-3 px-2 text-right font-bold text-[#087F5B] font-mono">
                     ₹{sale.totalAmount.toFixed(2)}

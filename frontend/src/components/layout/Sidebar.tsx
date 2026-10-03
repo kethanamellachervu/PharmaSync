@@ -4,6 +4,8 @@ import {
   LayoutDashboard,
   Package,
   ShoppingCart,
+  Truck,
+  ShoppingBag,
   Settings,
   X,
   PlusCircle,
@@ -22,6 +24,8 @@ const navItems: NavItem[] = [
   { title: 'Dashboard', href: '/', icon: LayoutDashboard },
   { title: 'Inventory', href: '/inventory', icon: Package },
   { title: 'Sales', href: '/sales', icon: ShoppingCart },
+  { title: 'Suppliers', href: '/suppliers', icon: Truck },
+  { title: 'Purchases', href: '/purchases', icon: ShoppingBag },
   { title: 'Settings', href: '/settings', icon: Settings },
 ];
 

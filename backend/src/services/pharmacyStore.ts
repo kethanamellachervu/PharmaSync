@@ -55,20 +55,95 @@ export interface ShopSettings {
   nearExpiryDays: number;
 }
 
-export interface SaleRecord {
+export interface Supplier {
   id: string;
+  name: string;
+  contactPerson?: string;
+  phone: string;
+  email?: string;
+  address?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PurchaseItemInput {
+  medicineId: string;
+  batchNumber: string;
+  quantity: number;
+  purchasePrice: number;
+  expiryDate: string; // YYYY-MM-DD
+  mfgDate?: string;
+}
+
+export interface PurchaseItem {
+  id: string;
+  purchaseId: string;
   medicineId: string;
   medicineName: string;
+  batchId?: string;
+  batchNumber: string;
+  quantity: number;
+  purchasePrice: number;
+  subtotal: number;
+  expiryDate: string;
+  mfgDate?: string;
+}
+
+export interface Purchase {
+  id: string;
+  purchaseNumber: string; // e.g. PO-1001
+  supplierId: string;
+  supplierName: string;
+  items: PurchaseItem[];
+  totalQuantity: number;
+  totalAmount: number;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface SaleBatchAllocation {
+  batchId: string;
+  batchNumber: string;
+  quantity: number;
+  expiryDate: string;
+}
+
+export interface SaleItem {
+  id: string;
+  saleId: string;
+  medicineId: string;
+  medicineName: string;
+  unit: string;
   quantity: number;
   unitPrice: number;
+  subtotal: number;
+  batchAllocations: SaleBatchAllocation[];
+}
+
+export interface Sale {
+  id: string;
+  saleNumber: string; // e.g. INV-1001
+  customerName: string;
+  items: SaleItem[];
+  totalItems: number;
+  totalQuantity: number;
   totalAmount: number;
-  batchesDeducted: {
+  idempotencyKey?: string;
+  createdAt: string;
+
+  // Backward compatibility fields for Phase 1 & 2 single-item consumers
+  medicineId?: string;
+  medicineName?: string;
+  quantity?: number;
+  unitPrice?: number;
+  batchesDeducted?: {
     batchNumber: string;
     quantity: number;
     expiryDate: string;
   }[];
-  createdAt: string;
 }
+
+export type SaleRecord = Sale;
 
 export interface FefoAllocationResult {
   success: boolean;
@@ -356,14 +431,107 @@ class PharmacyStore {
     },
   ];
 
-  private sales: SaleRecord[] = [
+  private suppliers: Supplier[] = [
+    {
+      id: 'supp-1',
+      name: 'MedLife Pharma Distributors',
+      contactPerson: 'Rajesh Sharma',
+      phone: '+91 98765 43210',
+      email: 'orders@medlifedist.com',
+      address: 'Plot 45, Industrial Area Phase II, Hyderabad',
+      createdAt: '2026-07-15T09:00:00.000Z',
+      updatedAt: '2026-07-15T09:00:00.000Z',
+    },
+    {
+      id: 'supp-2',
+      name: 'Apollo Surgicals & Generics',
+      contactPerson: 'Pooja Verma',
+      phone: '+91 98450 11223',
+      email: 'supply@apollosurgicals.in',
+      address: '12-B MG Road, Bangalore',
+      createdAt: '2026-07-20T10:00:00.000Z',
+      updatedAt: '2026-07-20T10:00:00.000Z',
+    },
+    {
+      id: 'supp-3',
+      name: 'Bharat Pharma Logistics',
+      contactPerson: 'Anil Kumar',
+      phone: '+91 97110 99887',
+      email: 'contact@bharatlogistics.com',
+      address: 'Sector 18, Electronic City, Gurgaon',
+      createdAt: '2026-08-01T11:00:00.000Z',
+      updatedAt: '2026-08-01T11:00:00.000Z',
+    },
+  ];
+
+  private purchases: Purchase[] = [
+    {
+      id: 'po-1',
+      purchaseNumber: 'PO-1001',
+      supplierId: 'supp-1',
+      supplierName: 'MedLife Pharma Distributors',
+      items: [
+        {
+          id: 'poi-1',
+          purchaseId: 'po-1',
+          medicineId: 'med-1',
+          medicineName: 'Paracetamol 500mg Tablets',
+          batchId: 'batch-1',
+          batchNumber: 'PCM-B101',
+          quantity: 60,
+          purchasePrice: 9.50,
+          subtotal: 570.00,
+          expiryDate: '2027-04-10',
+        },
+        {
+          id: 'poi-2',
+          purchaseId: 'po-1',
+          medicineId: 'med-1',
+          medicineName: 'Paracetamol 500mg Tablets',
+          batchId: 'batch-2',
+          batchNumber: 'PCM-B102',
+          quantity: 40,
+          purchasePrice: 9.50,
+          subtotal: 380.00,
+          expiryDate: '2027-09-15',
+        },
+      ],
+      totalQuantity: 100,
+      totalAmount: 950.00,
+      notes: 'Monthly replenishment for Paracetamol and analgesics',
+      createdAt: '2026-08-01T08:30:00.000Z',
+    },
+  ];
+
+  private processedIdempotencyKeys: Set<string> = new Set();
+
+  private sales: Sale[] = [
     {
       id: 'sale-1',
+      saleNumber: 'INV-1001',
+      customerName: 'Ramesh Patel',
+      items: [
+        {
+          id: 'si-1',
+          saleId: 'sale-1',
+          medicineId: 'med-1',
+          medicineName: 'Paracetamol 500mg Tablets',
+          unit: 'tablets',
+          quantity: 2,
+          unitPrice: 15.0,
+          subtotal: 30.0,
+          batchAllocations: [
+            { batchId: 'batch-1', batchNumber: 'PCM-B101', quantity: 2, expiryDate: '2027-04-10' },
+          ],
+        },
+      ],
+      totalItems: 1,
+      totalQuantity: 2,
+      totalAmount: 30.0,
       medicineId: 'med-1',
       medicineName: 'Paracetamol 500mg Tablets',
       quantity: 2,
       unitPrice: 15.0,
-      totalAmount: 30.0,
       batchesDeducted: [
         { batchNumber: 'PCM-B101', quantity: 2, expiryDate: '2027-04-10' },
       ],
@@ -371,11 +539,30 @@ class PharmacyStore {
     },
     {
       id: 'sale-2',
+      saleNumber: 'INV-1002',
+      customerName: 'Sunita Rao',
+      items: [
+        {
+          id: 'si-2',
+          saleId: 'sale-2',
+          medicineId: 'med-4',
+          medicineName: 'Pantoprazole 40mg Tablets',
+          unit: 'strips',
+          quantity: 1,
+          unitPrice: 55.0,
+          subtotal: 55.0,
+          batchAllocations: [
+            { batchId: 'batch-6', batchNumber: 'PAN-410', quantity: 1, expiryDate: '2027-02-28' },
+          ],
+        },
+      ],
+      totalItems: 1,
+      totalQuantity: 1,
+      totalAmount: 55.0,
       medicineId: 'med-4',
       medicineName: 'Pantoprazole 40mg Tablets',
       quantity: 1,
       unitPrice: 55.0,
-      totalAmount: 55.0,
       batchesDeducted: [
         { batchNumber: 'PAN-410', quantity: 1, expiryDate: '2027-02-28' },
       ],
@@ -383,40 +570,484 @@ class PharmacyStore {
     },
   ];
 
-  // --- Sales ---
-  public getAllSales(): SaleRecord[] {
-    return [...this.sales];
+  // --- Suppliers Management ---
+  public getAllSuppliers(search?: string): Supplier[] {
+    let list = [...this.suppliers];
+    if (search && search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          (s.contactPerson && s.contactPerson.toLowerCase().includes(q)) ||
+          s.phone.toLowerCase().includes(q) ||
+          (s.email && s.email.toLowerCase().includes(q))
+      );
+    }
+    return list;
   }
 
-  public recordSale(medicineId: string, quantity: number) {
-    const med = this.medicines.find((m) => m.id === medicineId);
-    if (!med) throw new Error('Medicine not found.');
+  public getSupplierById(id: string): Supplier | null {
+    return this.suppliers.find((s) => s.id === id) || null;
+  }
 
-    const allocation = this.allocateFefo(medicineId, quantity, 'Counter POS Sale');
-    if (!allocation.success) throw new Error(allocation.error || 'Failed to allocate stock for sale.');
+  public addSupplier(data: {
+    name: string;
+    contactPerson?: string;
+    phone: string;
+    email?: string;
+    address?: string;
+  }): Supplier {
+    if (!data.name || !data.name.trim()) throw new Error('Supplier name is required.');
+    if (!data.phone || !data.phone.trim()) throw new Error('Phone number is required.');
+    if (data.email && data.email.trim()) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(data.email.trim())) {
+        throw new Error('Invalid email format for supplier.');
+      }
+    }
 
-    const saleRecord: SaleRecord = {
-      id: `sale-${Date.now()}`,
-      medicineId,
-      medicineName: med.name,
-      quantity,
-      unitPrice: med.sellingPrice,
-      totalAmount: quantity * med.sellingPrice,
-      batchesDeducted: allocation.allocatedBatches.map((b) => ({
-        batchNumber: b.batchNumber,
-        quantity: b.quantity,
-        expiryDate: b.expiryDate,
-      })),
+    const newSupplier: Supplier = {
+      id: `supp-${Date.now()}`,
+      name: data.name.trim(),
+      contactPerson: data.contactPerson ? data.contactPerson.trim() : undefined,
+      phone: data.phone.trim(),
+      email: data.email ? data.email.trim() : undefined,
+      address: data.address ? data.address.trim() : undefined,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.suppliers.unshift(newSupplier);
+    return newSupplier;
+  }
+
+  public updateSupplier(
+    id: string,
+    data: {
+      name?: string;
+      contactPerson?: string;
+      phone?: string;
+      email?: string;
+      address?: string;
+    }
+  ): Supplier | null {
+    const index = this.suppliers.findIndex((s) => s.id === id);
+    if (index === -1) return null;
+
+    if (data.name !== undefined && !data.name.trim()) {
+      throw new Error('Supplier name cannot be empty.');
+    }
+    if (data.phone !== undefined && !data.phone.trim()) {
+      throw new Error('Phone number cannot be empty.');
+    }
+    if (data.email !== undefined && data.email.trim()) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(data.email.trim())) {
+        throw new Error('Invalid email format for supplier.');
+      }
+    }
+
+    const current = this.suppliers[index];
+    const updated: Supplier = {
+      ...current,
+      name: data.name !== undefined ? data.name.trim() : current.name,
+      contactPerson: data.contactPerson !== undefined ? data.contactPerson.trim() : current.contactPerson,
+      phone: data.phone !== undefined ? data.phone.trim() : current.phone,
+      email: data.email !== undefined ? data.email.trim() : current.email,
+      address: data.address !== undefined ? data.address.trim() : current.address,
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.suppliers[index] = updated;
+    return updated;
+  }
+
+  public deleteSupplier(id: string): boolean {
+    const supp = this.suppliers.find((s) => s.id === id);
+    if (!supp) return false;
+
+    // Disallow deletion if any purchase records depend on this supplier
+    const dependentPurchases = this.purchases.filter((p) => p.supplierId === id);
+    if (dependentPurchases.length > 0) {
+      throw new Error(
+        `Cannot delete supplier "${supp.name}": ${dependentPurchases.length} purchase record(s) depend on this supplier.`
+      );
+    }
+
+    const initialLen = this.suppliers.length;
+    this.suppliers = this.suppliers.filter((s) => s.id !== id);
+    return this.suppliers.length < initialLen;
+  }
+
+  // --- Purchases Management ---
+  public getAllPurchases(filter?: { supplierId?: string; date?: string }): Purchase[] {
+    let list = [...this.purchases];
+    if (filter?.supplierId) {
+      list = list.filter((p) => p.supplierId === filter.supplierId);
+    }
+    if (filter?.date) {
+      list = list.filter((p) => p.createdAt.startsWith(filter.date!));
+    }
+    return list;
+  }
+
+  public getPurchaseById(id: string): Purchase | null {
+    return this.purchases.find((p) => p.id === id || p.purchaseNumber === id) || null;
+  }
+
+  public createPurchase(data: {
+    supplierId: string;
+    items: PurchaseItemInput[];
+    notes?: string;
+  }): Purchase {
+    const supplier = this.suppliers.find((s) => s.id === data.supplierId);
+    if (!supplier) throw new Error('Selected supplier does not exist.');
+
+    if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
+      throw new Error('Purchase must contain at least one medicine item.');
+    }
+
+    // 1. Pre-validation Phase (Atomic: zero state mutations if any item fails)
+    for (let i = 0; i < data.items.length; i++) {
+      const item = data.items[i];
+      if (!item.medicineId) throw new Error(`Item #${i + 1}: Medicine selection is required.`);
+      const med = this.medicines.find((m) => m.id === item.medicineId);
+      if (!med) throw new Error(`Item #${i + 1}: Medicine not found.`);
+
+      if (!item.batchNumber || !item.batchNumber.trim()) {
+        throw new Error(`Item #${i + 1} (${med.name}): Batch number is required.`);
+      }
+      if (Number(item.quantity) <= 0 || !Number.isInteger(Number(item.quantity))) {
+        throw new Error(`Item #${i + 1} (${med.name}): Quantity must be a positive whole number.`);
+      }
+      if (Number(item.purchasePrice) < 0) {
+        throw new Error(`Item #${i + 1} (${med.name}): Purchase price must be non-negative.`);
+      }
+      if (!item.expiryDate) {
+        throw new Error(`Item #${i + 1} (${med.name}): Expiry date is required.`);
+      }
+      if (item.mfgDate && new Date(item.expiryDate) <= new Date(item.mfgDate)) {
+        throw new Error(`Item #${i + 1} (${med.name}): Expiry date must be later than manufacturing date.`);
+      }
+
+      // Check conflicting batch information
+      const existingBatch = this.batches.find(
+        (b) =>
+          b.medicineId === item.medicineId &&
+          b.batchNumber.toLowerCase() === item.batchNumber.trim().toLowerCase()
+      );
+      if (existingBatch) {
+        if (existingBatch.expiryDate !== item.expiryDate) {
+          throw new Error(
+            `Conflicting batch details for "${med.name}": Batch "${item.batchNumber}" already exists with expiry date ${existingBatch.expiryDate}. Cannot merge incoming batch with conflicting expiry date ${item.expiryDate}. Please assign a distinct batch number or correct the date.`
+          );
+        }
+      }
+    }
+
+    // 2. Execution Phase (Atomic commit)
+    const purchaseId = `po-${Date.now()}`;
+    const purchaseNumber = `PO-${1000 + this.purchases.length + 1}`;
+    const purchaseItems: PurchaseItem[] = [];
+    let totalQuantity = 0;
+    let totalAmount = 0;
+
+    for (const item of data.items) {
+      const med = this.medicines.find((m) => m.id === item.medicineId)!;
+      const qty = Number(item.quantity);
+      const price = Number(item.purchasePrice);
+      const subtotal = qty * price;
+      totalQuantity += qty;
+      totalAmount += subtotal;
+
+      const existingBatch = this.batches.find(
+        (b) =>
+          b.medicineId === item.medicineId &&
+          b.batchNumber.toLowerCase() === item.batchNumber.trim().toLowerCase()
+      );
+
+      let batchId: string;
+      if (existingBatch) {
+        existingBatch.quantity += qty;
+        existingBatch.updatedAt = new Date().toISOString();
+        batchId = existingBatch.id;
+      } else {
+        batchId = `batch-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+        const newBatch: MedicineBatch = {
+          id: batchId,
+          medicineId: med.id,
+          batchNumber: item.batchNumber.trim(),
+          quantity: qty,
+          mfgDate: item.mfgDate || undefined,
+          expiryDate: item.expiryDate,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        this.batches.unshift(newBatch);
+      }
+
+      // Update medicine purchase price if provided
+      if (price > 0) {
+        med.purchasePrice = price;
+        med.updatedAt = new Date().toISOString();
+      }
+
+      // Record Stock Movement as 'Stock Added'
+      this.stockMovements.unshift({
+        id: `mov-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+        medicineId: med.id,
+        batchId,
+        batchNumber: item.batchNumber.trim(),
+        movementType: 'Stock Added',
+        quantity: qty,
+        reason: `Purchase ${purchaseNumber} from ${supplier.name}`,
+        createdAt: new Date().toISOString(),
+      });
+
+      purchaseItems.push({
+        id: `poi-${Date.now()}-${purchaseItems.length + 1}`,
+        purchaseId,
+        medicineId: med.id,
+        medicineName: med.name,
+        batchId,
+        batchNumber: item.batchNumber.trim(),
+        quantity: qty,
+        purchasePrice: price,
+        subtotal,
+        expiryDate: item.expiryDate,
+        mfgDate: item.mfgDate,
+      });
+    }
+
+    const purchase: Purchase = {
+      id: purchaseId,
+      purchaseNumber,
+      supplierId: supplier.id,
+      supplierName: supplier.name,
+      items: purchaseItems,
+      totalQuantity,
+      totalAmount,
+      notes: data.notes ? data.notes.trim() : undefined,
       createdAt: new Date().toISOString(),
     };
 
-    this.sales.unshift(saleRecord);
+    this.purchases.unshift(purchase);
+    return purchase;
+  }
 
-    const updatedMed = this.getMedicineById(medicineId);
-    return {
-      sale: saleRecord,
-      updatedMedicine: updatedMed!,
+  // --- Sales Management ---
+  public getAllSales(filter?: { search?: string; date?: string }): Sale[] {
+    let list = [...this.sales];
+    if (filter?.search && filter.search.trim()) {
+      const q = filter.search.trim().toLowerCase();
+      list = list.filter(
+        (s) =>
+          s.saleNumber.toLowerCase().includes(q) ||
+          (s.customerName && s.customerName.toLowerCase().includes(q)) ||
+          s.id.toLowerCase().includes(q) ||
+          s.items.some((it) => it.medicineName.toLowerCase().includes(q))
+      );
+    }
+    if (filter?.date) {
+      list = list.filter((s) => s.createdAt.startsWith(filter.date!));
+    }
+    return list;
+  }
+
+  public getSaleById(id: string): Sale | null {
+    return this.sales.find((s) => s.id === id || s.saleNumber === id) || null;
+  }
+
+  public createSale(data: {
+    customerName?: string;
+    items: { medicineId: string; quantity: number }[];
+    idempotencyKey?: string;
+  }): Sale {
+    // 1. Idempotency & duplicate submission check
+    if (data.idempotencyKey) {
+      if (this.processedIdempotencyKeys.has(data.idempotencyKey)) {
+        throw new Error('Duplicate sale submission detected. This sale has already been processed.');
+      }
+    }
+
+    if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
+      throw new Error('Sale must contain at least one medicine item.');
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // 2. Pre-allocation verification (Atomic FEFO plan)
+    interface PlannedAllocation {
+      medicine: Medicine;
+      quantity: number;
+      subtotal: number;
+      batchesToDeduct: {
+        batch: MedicineBatch;
+        quantity: number;
+      }[];
+    }
+
+    const plannedAllocations: PlannedAllocation[] = [];
+    const batchQuantityTracker = new Map<string, number>();
+    for (const b of this.batches) {
+      batchQuantityTracker.set(b.id, b.quantity);
+    }
+
+    for (let i = 0; i < data.items.length; i++) {
+      const item = data.items[i];
+      if (!item.medicineId) throw new Error(`Item #${i + 1}: Medicine ID is required.`);
+      const qty = Number(item.quantity);
+      if (!qty || qty <= 0 || !Number.isInteger(qty)) {
+        throw new Error(`Item #${i + 1}: Quantity must be a positive whole number.`);
+      }
+
+      const med = this.medicines.find((m) => m.id === item.medicineId);
+      if (!med) throw new Error(`Medicine "${item.medicineId}" not found.`);
+
+      // Usable active batches: quantity > 0 and expiryDate >= today
+      const usableBatches = this.batches
+        .filter(
+          (b) =>
+            b.medicineId === med.id &&
+            (batchQuantityTracker.get(b.id) || 0) > 0 &&
+            new Date(b.expiryDate) >= today
+        )
+        .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime());
+
+      const availableUsable = usableBatches.reduce(
+        (sum, b) => sum + (batchQuantityTracker.get(b.id) || 0),
+        0
+      );
+
+      if (availableUsable < qty) {
+        throw new Error(
+          `Insufficient usable stock for "${med.name}". Usable in stock: ${availableUsable} ${med.unit}, Requested: ${qty} ${med.unit}. (Note: Expired batches are excluded from usable stock).`
+        );
+      }
+
+      let remainingNeeded = qty;
+      const batchesToDeduct: { batch: MedicineBatch; quantity: number }[] = [];
+
+      for (const batch of usableBatches) {
+        if (remainingNeeded <= 0) break;
+        const currentAvail = batchQuantityTracker.get(batch.id) || 0;
+        const take = Math.min(currentAvail, remainingNeeded);
+        batchesToDeduct.push({ batch, quantity: take });
+        batchQuantityTracker.set(batch.id, currentAvail - take);
+        remainingNeeded -= take;
+      }
+
+      plannedAllocations.push({
+        medicine: med,
+        quantity: qty,
+        subtotal: qty * med.sellingPrice,
+        batchesToDeduct,
+      });
+    }
+
+    // 3. Execution Phase (Atomic commit)
+    const saleId = `sale-${Date.now()}`;
+    const saleNumber = `INV-${1000 + this.sales.length + 1}`;
+    const saleItems: SaleItem[] = [];
+    let totalQuantity = 0;
+    let totalAmount = 0;
+
+    for (const planned of plannedAllocations) {
+      const med = planned.medicine;
+      totalQuantity += planned.quantity;
+      totalAmount += planned.subtotal;
+
+      const allocationsForLine: SaleBatchAllocation[] = [];
+
+      for (const bDeduct of planned.batchesToDeduct) {
+        bDeduct.batch.quantity -= bDeduct.quantity;
+        bDeduct.batch.updatedAt = new Date().toISOString();
+
+        allocationsForLine.push({
+          batchId: bDeduct.batch.id,
+          batchNumber: bDeduct.batch.batchNumber,
+          quantity: bDeduct.quantity,
+          expiryDate: bDeduct.batch.expiryDate,
+        });
+
+        // Record Stock Movement as 'Stock Removed'
+        this.stockMovements.unshift({
+          id: `mov-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+          medicineId: med.id,
+          batchId: bDeduct.batch.id,
+          batchNumber: bDeduct.batch.batchNumber,
+          movementType: 'Stock Removed',
+          quantity: -bDeduct.quantity,
+          reason: `Sale ${saleNumber} dispensed (FEFO batch ${bDeduct.batch.batchNumber})`,
+          createdAt: new Date().toISOString(),
+        });
+      }
+
+      saleItems.push({
+        id: `si-${Date.now()}-${saleItems.length + 1}`,
+        saleId,
+        medicineId: med.id,
+        medicineName: med.name,
+        unit: med.unit,
+        quantity: planned.quantity,
+        unitPrice: med.sellingPrice,
+        subtotal: planned.subtotal,
+        batchAllocations: allocationsForLine,
+      });
+    }
+
+    const primaryItem = saleItems[0];
+    const sale: Sale = {
+      id: saleId,
+      saleNumber,
+      customerName: data.customerName?.trim() || 'Walk-in Customer',
+      items: saleItems,
+      totalItems: saleItems.length,
+      totalQuantity,
+      totalAmount,
+      idempotencyKey: data.idempotencyKey,
+      createdAt: new Date().toISOString(),
+
+      // Backward compatibility fields
+      medicineId: primaryItem.medicineId,
+      medicineName: primaryItem.medicineName,
+      quantity: totalQuantity,
+      unitPrice: primaryItem.unitPrice,
+      batchesDeducted: saleItems.flatMap((si) =>
+        si.batchAllocations.map((ba) => ({
+          batchNumber: ba.batchNumber,
+          quantity: ba.quantity,
+          expiryDate: ba.expiryDate,
+        }))
+      ),
     };
+
+    if (data.idempotencyKey) {
+      this.processedIdempotencyKeys.add(data.idempotencyKey);
+    }
+
+    this.sales.unshift(sale);
+    return sale;
+  }
+
+  public recordSale(medicineId: string, quantity: number) {
+    const sale = this.createSale({
+      items: [{ medicineId, quantity }],
+    });
+    const updatedMedicine = this.getMedicineById(medicineId)!;
+    return {
+      sale,
+      updatedMedicine,
+    };
+  }
+
+  public getTodaySalesAmount(): number {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return this.sales
+      .filter((s) => new Date(s.createdAt) >= today)
+      .reduce((sum, s) => sum + s.totalAmount, 0);
   }
 
   // --- Settings ---

@@ -412,6 +412,8 @@ export function getDashboardOverview(req: Request, res: Response, next: NextFunc
 
     const totalMedicines = enriched.length;
     const availableStock = enriched.reduce((sum, m) => sum + m.usableStock, 0);
+    const todaySalesAmount = pharmacyStore.getTodaySalesAmount();
+    const recentSales = pharmacyStore.getAllSales().slice(0, 5);
 
     res.status(200).json({
       status: 'success',
@@ -422,7 +424,7 @@ export function getDashboardOverview(req: Request, res: Response, next: NextFunc
         outOfStockCount: alerts.summary.outOfStockCount,
         nearExpiryBatchCount: alerts.summary.nearExpiryBatchCount,
         expiredBatchCount: alerts.summary.expiredBatchCount,
-        todaySalesAmount: 180, // Counter collections
+        todaySalesAmount,
         lowStockMedicines: alerts.lowStockMedicines.map((m) => ({
           id: m.id,
           name: m.name,
@@ -433,7 +435,7 @@ export function getDashboardOverview(req: Request, res: Response, next: NextFunc
         })),
         nearExpiryMedicines: alerts.nearExpiryBatches,
         expiredMedicines: alerts.expiredBatches,
-        recentSales: [],
+        recentSales,
         settings,
       },
     });

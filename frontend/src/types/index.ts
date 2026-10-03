@@ -51,20 +51,95 @@ export interface Medicine {
   earliestExpiry: string | null;
 }
 
-export interface SaleRecord {
+export interface Supplier {
   id: string;
+  name: string;
+  contactPerson?: string;
+  phone: string;
+  email?: string;
+  address?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PurchaseItemInput {
+  medicineId: string;
+  batchNumber: string;
+  quantity: number;
+  purchasePrice: number;
+  expiryDate: string; // YYYY-MM-DD
+  mfgDate?: string;
+}
+
+export interface PurchaseItem {
+  id: string;
+  purchaseId: string;
   medicineId: string;
   medicineName: string;
+  batchId?: string;
+  batchNumber: string;
+  quantity: number;
+  purchasePrice: number;
+  subtotal: number;
+  expiryDate: string;
+  mfgDate?: string;
+}
+
+export interface Purchase {
+  id: string;
+  purchaseNumber: string; // e.g. PO-1001
+  supplierId: string;
+  supplierName: string;
+  items: PurchaseItem[];
+  totalQuantity: number;
+  totalAmount: number;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface SaleBatchAllocation {
+  batchId: string;
+  batchNumber: string;
+  quantity: number;
+  expiryDate: string;
+}
+
+export interface SaleItem {
+  id: string;
+  saleId: string;
+  medicineId: string;
+  medicineName: string;
+  unit: string;
   quantity: number;
   unitPrice: number;
+  subtotal: number;
+  batchAllocations: SaleBatchAllocation[];
+}
+
+export interface Sale {
+  id: string;
+  saleNumber: string; // e.g. INV-1001
+  customerName: string;
+  items: SaleItem[];
+  totalItems: number;
+  totalQuantity: number;
   totalAmount: number;
-  batchesDeducted: {
+  idempotencyKey?: string;
+  createdAt: string;
+
+  // Backward compatibility fields for single-item display
+  medicineId?: string;
+  medicineName?: string;
+  quantity?: number;
+  unitPrice?: number;
+  batchesDeducted?: {
     batchNumber: string;
     quantity: number;
     expiryDate: string;
   }[];
-  createdAt: string;
 }
+
+export type SaleRecord = Sale;
 
 export interface ShopSettings {
   shopName: string;

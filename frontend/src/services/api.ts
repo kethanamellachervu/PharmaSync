@@ -4,6 +4,10 @@ import {
   MedicineBatch,
   StockMovement,
   SaleRecord,
+  Sale,
+  Supplier,
+  Purchase,
+  PurchaseItemInput,
   ShopSettings,
   DashboardStats,
   InventoryAlertsData,
@@ -215,13 +219,139 @@ export const apiService = {
     }
   },
 
-  // --- Sales ---
-  async getSales(): Promise<SaleRecord[]> {
+  // --- Suppliers ---
+  async getSuppliers(search?: string): Promise<Supplier[]> {
     try {
-      const response = await apiClient.get<{ status: string; data: SaleRecord[] }>('/sales');
+      const response = await apiClient.get<{ status: string; data: Supplier[] }>('/suppliers', {
+        params: { search },
+      });
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to fetch suppliers.');
+    }
+  },
+
+  async getSupplierById(id: string): Promise<Supplier & { purchases?: Purchase[] }> {
+    try {
+      const response = await apiClient.get<{ status: string; data: Supplier & { purchases?: Purchase[] } }>(
+        `/suppliers/${id}`
+      );
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to fetch supplier details.');
+    }
+  },
+
+  async createSupplier(data: {
+    name: string;
+    contactPerson?: string;
+    phone: string;
+    email?: string;
+    address?: string;
+  }): Promise<Supplier> {
+    try {
+      const response = await apiClient.post<{ status: string; data: Supplier }>('/suppliers', data);
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to create supplier.');
+    }
+  },
+
+  async updateSupplier(
+    id: string,
+    data: {
+      name?: string;
+      contactPerson?: string;
+      phone?: string;
+      email?: string;
+      address?: string;
+    }
+  ): Promise<Supplier> {
+    try {
+      const response = await apiClient.put<{ status: string; data: Supplier }>(`/suppliers/${id}`, data);
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to update supplier.');
+    }
+  },
+
+  async deleteSupplier(id: string): Promise<void> {
+    try {
+      await apiClient.delete(`/suppliers/${id}`);
+    } catch (err) {
+      return handleApiError(err, 'Failed to delete supplier.');
+    }
+  },
+
+  // --- Purchases ---
+  async getPurchases(filter?: { supplierId?: string; date?: string }): Promise<Purchase[]> {
+    try {
+      const response = await apiClient.get<{ status: string; data: Purchase[] }>('/purchases', {
+        params: filter,
+      });
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to fetch purchases history.');
+    }
+  },
+
+  async getPurchaseById(id: string): Promise<Purchase> {
+    try {
+      const response = await apiClient.get<{ status: string; data: Purchase }>(`/purchases/${id}`);
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to fetch purchase details.');
+    }
+  },
+
+  async createPurchase(data: {
+    supplierId: string;
+    items: PurchaseItemInput[];
+    notes?: string;
+  }): Promise<Purchase> {
+    try {
+      const response = await apiClient.post<{ status: string; data: Purchase }>('/purchases', data);
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to record purchase.');
+    }
+  },
+
+  // --- Sales ---
+  async getSales(filter?: { search?: string; date?: string }): Promise<Sale[]> {
+    try {
+      const response = await apiClient.get<{ status: string; data: Sale[] }>('/sales', {
+        params: filter,
+      });
       return response.data.data;
     } catch (err) {
       return handleApiError(err, 'Failed to fetch sales history.');
+    }
+  },
+
+  async getSaleById(id: string): Promise<Sale> {
+    try {
+      const response = await apiClient.get<{ status: string; data: Sale }>(`/sales/${id}`);
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to fetch sale details.');
+    }
+  },
+
+  async createSale(data: {
+    customerName?: string;
+    items: { medicineId: string; quantity: number }[];
+    idempotencyKey?: string;
+  }): Promise<Sale> {
+    try {
+      const response = await apiClient.post<{
+        status: string;
+        message: string;
+        data: Sale;
+      }>('/sales', data);
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to complete sale transaction.');
     }
   },
 
