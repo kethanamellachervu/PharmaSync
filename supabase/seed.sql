@@ -1,0 +1,114 @@
+-- ==============================================================================
+-- PharmaSync – Phase 2: Sample Pharmacy Data Seed Script
+-- Realistic sample inventory for local/retail pharmacies
+-- ==============================================================================
+
+DO $$
+DECLARE
+    med_pcm UUID;
+    med_amox UUID;
+    med_met UUID;
+    med_panto UUID;
+    med_cetz UUID;
+    med_azith UUID;
+    med_cough UUID;
+    batch_id UUID;
+BEGIN
+    -- 1. Paracetamol 500mg (Analgesics)
+    INSERT INTO public.medicines (name, generic_name, category, manufacturer, description, unit, min_stock_level, selling_price, purchase_price)
+    VALUES ('Paracetamol 500mg Tablets', 'Acetaminophen', 'Analgesics', 'Apex Healthcare', 'Standard antipyretic and analgesic for pain & fever relief.', 'tablets', 30, 15.00, 9.50)
+    RETURNING id INTO med_pcm;
+
+    INSERT INTO public.medicine_batches (medicine_id, batch_number, quantity, mfg_date, expiry_date)
+    VALUES (med_pcm, 'PCM-B101', 60, CURRENT_DATE - INTERVAL '6 months', CURRENT_DATE + INTERVAL '18 months')
+    RETURNING id INTO batch_id;
+    INSERT INTO public.stock_movements (medicine_id, batch_id, batch_number, movement_type, quantity, reason)
+    VALUES (med_pcm, batch_id, 'PCM-B101', 'Stock Added', 60, 'Initial wholesale delivery');
+
+    INSERT INTO public.medicine_batches (medicine_id, batch_number, quantity, mfg_date, expiry_date)
+    VALUES (med_pcm, 'PCM-B102', 40, CURRENT_DATE - INTERVAL '2 months', CURRENT_DATE + INTERVAL '22 months')
+    RETURNING id INTO batch_id;
+    INSERT INTO public.stock_movements (medicine_id, batch_id, batch_number, movement_type, quantity, reason)
+    VALUES (med_pcm, batch_id, 'PCM-B102', 'Stock Added', 40, 'Routine replenishment');
+
+    -- 2. Amoxicillin 500mg (Antibiotics - Near Expiry Alert within 30 days)
+    INSERT INTO public.medicines (name, generic_name, category, manufacturer, description, unit, min_stock_level, selling_price, purchase_price)
+    VALUES ('Amoxicillin 500mg Capsules', 'Amoxicillin Trihydrate', 'Antibiotics', 'Cipla Labs', 'Broad-spectrum penicillin antibiotic.', 'strips', 25, 65.00, 48.00)
+    RETURNING id INTO med_amox;
+
+    INSERT INTO public.medicine_batches (medicine_id, batch_number, quantity, mfg_date, expiry_date)
+    VALUES (med_amox, 'AMX-204', 12, CURRENT_DATE - INTERVAL '11 months', CURRENT_DATE + INTERVAL '20 days')
+    RETURNING id INTO batch_id;
+    INSERT INTO public.stock_movements (medicine_id, batch_id, batch_number, movement_type, quantity, reason)
+    VALUES (med_amox, batch_id, 'AMX-204', 'Stock Added', 12, 'Secondary stock intake');
+
+    -- 3. Metformin 500mg (Diabetes - Multi-batch: one near expiry, one healthy)
+    INSERT INTO public.medicines (name, generic_name, category, manufacturer, description, unit, min_stock_level, selling_price, purchase_price)
+    VALUES ('Metformin 500mg Tablets', 'Metformin Hydrochloride', 'Diabetes Care', 'Sun Pharma', 'First-line medication for type 2 diabetes management.', 'boxes', 40, 42.00, 29.00)
+    RETURNING id INTO med_met;
+
+    INSERT INTO public.medicine_batches (medicine_id, batch_number, quantity, mfg_date, expiry_date)
+    VALUES (med_met, 'MET-332', 15, CURRENT_DATE - INTERVAL '10 months', CURRENT_DATE + INTERVAL '25 days')
+    RETURNING id INTO batch_id;
+    INSERT INTO public.stock_movements (medicine_id, batch_id, batch_number, movement_type, quantity, reason)
+    VALUES (med_met, batch_id, 'MET-332', 'Stock Added', 15, 'Batch consignment A');
+
+    INSERT INTO public.medicine_batches (medicine_id, batch_number, quantity, mfg_date, expiry_date)
+    VALUES (med_met, 'MET-333', 50, CURRENT_DATE - INTERVAL '3 months', CURRENT_DATE + INTERVAL '16 months')
+    RETURNING id INTO batch_id;
+    INSERT INTO public.stock_movements (medicine_id, batch_id, batch_number, movement_type, quantity, reason)
+    VALUES (med_met, batch_id, 'MET-333', 'Stock Added', 50, 'Batch consignment B');
+
+    -- 4. Pantoprazole 40mg (Antacids)
+    INSERT INTO public.medicines (name, generic_name, category, manufacturer, description, unit, min_stock_level, selling_price, purchase_price)
+    VALUES ('Pantoprazole 40mg Tablets', 'Pantoprazole Sodium', 'Antacids', 'Alkem Laboratories', 'Proton pump inhibitor for acid reflux and GERD.', 'strips', 20, 55.00, 36.00)
+    RETURNING id INTO med_panto;
+
+    INSERT INTO public.medicine_batches (medicine_id, batch_number, quantity, mfg_date, expiry_date)
+    VALUES (med_panto, 'PAN-410', 35, CURRENT_DATE - INTERVAL '4 months', CURRENT_DATE + INTERVAL '14 months')
+    RETURNING id INTO batch_id;
+    INSERT INTO public.stock_movements (medicine_id, batch_id, batch_number, movement_type, quantity, reason)
+    VALUES (med_panto, batch_id, 'PAN-410', 'Stock Added', 35, 'Primary stock intake');
+
+    -- 5. Cetirizine 10mg (Antihistamines - Low Stock Alert)
+    INSERT INTO public.medicines (name, generic_name, category, manufacturer, description, unit, min_stock_level, selling_price, purchase_price)
+    VALUES ('Cetirizine 10mg Tablets', 'Cetirizine Dihydrochloride', 'Antihistamines', 'Dr. Reddy Laboratories', 'Non-drowsy allergy and antihistamine medication.', 'strips', 25, 22.00, 14.50)
+    RETURNING id INTO med_cetz;
+
+    INSERT INTO public.medicine_batches (medicine_id, batch_number, quantity, mfg_date, expiry_date)
+    VALUES (med_cetz, 'CTZ-512', 8, CURRENT_DATE - INTERVAL '5 months', CURRENT_DATE + INTERVAL '12 months')
+    RETURNING id INTO batch_id;
+    INSERT INTO public.stock_movements (medicine_id, batch_id, batch_number, movement_type, quantity, reason)
+    VALUES (med_cetz, batch_id, 'CTZ-512', 'Stock Added', 8, 'Low stock balance');
+
+    -- 6. Azithromycin 500mg (Antibiotics)
+    INSERT INTO public.medicines (name, generic_name, category, manufacturer, description, unit, min_stock_level, selling_price, purchase_price)
+    VALUES ('Azithromycin 500mg Tablets', 'Azithromycin', 'Antibiotics', 'Zydus Cadila', 'Macrolide antibiotic for respiratory & bacterial infections.', 'strips', 15, 95.00, 68.00)
+    RETURNING id INTO med_azith;
+
+    INSERT INTO public.medicine_batches (medicine_id, batch_number, quantity, mfg_date, expiry_date)
+    VALUES (med_azith, 'AZI-620', 28, CURRENT_DATE - INTERVAL '4 months', CURRENT_DATE + INTERVAL '11 months')
+    RETURNING id INTO batch_id;
+    INSERT INTO public.stock_movements (medicine_id, batch_id, batch_number, movement_type, quantity, reason)
+    VALUES (med_azith, batch_id, 'AZI-620', 'Stock Added', 28, 'Initial inventory');
+
+    -- 7. Ascoril D Plus Syrup (Respiratory / Cough - Expired Batch demonstration)
+    INSERT INTO public.medicines (name, generic_name, category, manufacturer, description, unit, min_stock_level, selling_price, purchase_price)
+    VALUES ('Ascoril D Plus Cough Syrup', 'Dextromethorphan + Chlorpheniramine', 'Respiratory', 'Glenmark Pharma', 'Cough suppressant syrup for dry cough relief.', 'bottles', 15, 120.00, 85.00)
+    RETURNING id INTO med_cough;
+
+    -- Expired batch: quantity 10, expired 15 days ago (must be excluded from usable stock!)
+    INSERT INTO public.medicine_batches (medicine_id, batch_number, quantity, mfg_date, expiry_date)
+    VALUES (med_cough, 'ASC-EXP01', 10, CURRENT_DATE - INTERVAL '14 months', CURRENT_DATE - INTERVAL '15 days')
+    RETURNING id INTO batch_id;
+    INSERT INTO public.stock_movements (medicine_id, batch_id, batch_number, movement_type, quantity, reason)
+    VALUES (med_cough, batch_id, 'ASC-EXP01', 'Stock Added', 10, 'Historical stock (Expired)');
+
+    -- Fresh batch: quantity 20, valid
+    INSERT INTO public.medicine_batches (medicine_id, batch_number, quantity, mfg_date, expiry_date)
+    VALUES (med_cough, 'ASC-FRESH02', 20, CURRENT_DATE - INTERVAL '2 months', CURRENT_DATE + INTERVAL '18 months')
+    RETURNING id INTO batch_id;
+    INSERT INTO public.stock_movements (medicine_id, batch_id, batch_number, movement_type, quantity, reason)
+    VALUES (med_cough, batch_id, 'ASC-FRESH02', 'Stock Added', 20, 'Fresh batch stock intake');
+
+END $$;

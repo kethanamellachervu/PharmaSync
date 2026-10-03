@@ -70,7 +70,7 @@ export const SalesPage: React.FC = () => {
   }, [selectedMedicine]);
 
   const maxStock = selectedMedicine ? selectedMedicine.totalStock : 0;
-  const unitPrice = selectedMedicine ? selectedMedicine.price : 0;
+  const unitPrice = selectedMedicine ? (selectedMedicine.sellingPrice ?? selectedMedicine.price ?? 0) : 0;
   const totalPrice = unitPrice * (quantity || 0);
 
   const handleRecordSale = async (e: React.FormEvent) => {
@@ -233,7 +233,7 @@ export const SalesPage: React.FC = () => {
                     value={med.id}
                     disabled={med.totalStock <= 0}
                   >
-                    {med.name} ({med.totalStock} in stock) — ₹{med.price.toFixed(2)}
+                    {med.name} ({med.totalStock} in stock) — ₹{(med.sellingPrice ?? med.price ?? 0).toFixed(2)}
                   </option>
                 ))}
               </select>
@@ -246,7 +246,7 @@ export const SalesPage: React.FC = () => {
                   <span className="text-gray-500">Available Stock:</span>
                   <span
                     className={`font-bold font-mono ${
-                      maxStock <= selectedMedicine.minStock
+                      maxStock <= (selectedMedicine.minStockLevel ?? selectedMedicine.minStock ?? 0)
                         ? 'text-red-600'
                         : 'text-gray-800'
                     }`}

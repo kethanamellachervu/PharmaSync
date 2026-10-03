@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, AlertCircle, Plus, Trash2 } from 'lucide-react';
-import { Medicine, MedicineBatch } from '../../types';
+import { X, Save, AlertCircle } from 'lucide-react';
+import { Medicine } from '../../types';
 import { apiService } from '../../services/api';
 
 interface EditMedicineModalProps {
@@ -10,6 +10,19 @@ interface EditMedicineModalProps {
   onSuccess: () => void;
 }
 
+const unitOptions = [
+  { value: 'tablets', label: 'Tablets' },
+  { value: 'strips', label: 'Strips' },
+  { value: 'bottles', label: 'Bottles' },
+  { value: 'boxes', label: 'Boxes' },
+  { value: 'capsules', label: 'Capsules' },
+  { value: 'vials', label: 'Vials' },
+  { value: 'ampoules', label: 'Ampoules' },
+  { value: 'tubes', label: 'Tubes (Ointment)' },
+  { value: 'syrups', label: 'Syrups' },
+  { value: 'sachets', label: 'Sachets' },
+];
+
 export const EditMedicineModal: React.FC<EditMedicineModalProps> = ({
   medicine,
   isOpen,
@@ -17,89 +30,77 @@ export const EditMedicineModal: React.FC<EditMedicineModalProps> = ({
   onSuccess,
 }) => {
   const [name, setName] = useState('');
+  const [genericName, setGenericName] = useState('');
   const [category, setCategory] = useState('');
-  const [price, setPrice] = useState('');
-  const [minStock, setMinStock] = useState('20');
-  const [batches, setBatches] = useState<MedicineBatch[]>([]);
-
-  // New batch row state
-  const [newBatchNumber, setNewBatchNumber] = useState('');
-  const [newBatchQty, setNewBatchQty] = useState('');
-  const [newBatchExp, setNewBatchExp] = useState('');
+  const [manufacturer, setManufacturer] = useState('');
+  const [description, setDescription] = useState('');
+  const [unit, setUnit] = useState('tablets');
+  const [minStockLevel, setMinStockLevel] = useState('20');
+  const [sellingPrice, setSellingPrice] = useState('');
+  const [purchasePrice, setPurchasePrice] = useState('');
 
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
   useEffect(() => {
     if (medicine) {
-      setName(medicine.name);
-      setCategory(medicine.category);
-      setPrice(medicine.price.toString());
-      setMinStock(medicine.minStock.toString());
-      setBatches(medicine.batches ? [...medicine.batches] : []);
-      setError(null);
+      setName(medicine.name || '');
+      setGenericName(medicine.genericName || '');
+      setCategory(medicine.category || '');
+      setManufacturer(medicine.manufacturer || '');
+      setDescription(medicine.description || '');
+      setUnit(medicine.unit || 'tablets');
+      setMinStockLevel(medicine.minStockLevel?.toString() || '20');
+      setSellingPrice(medicine.sellingPrice?.toString() || '');
+      setPurchasePrice(medicine.purchasePrice !== undefined ? medicine.purchasePrice.toString() : '');
+      setValidationErrors([]);
     }
   }, [medicine]);
 
   if (!isOpen || !medicine) return null;
 
-  const handleAddBatch = () => {
-    if (!newBatchQty || Number(newBatchQty) <= 0 || !newBatchExp) {
-      setError('Please provide batch quantity and expiration date.');
-      return;
+  const validate = (): boolean => {
+    const errors: string[] = [];
+    if (!name.trim()) errors.push('Medicine name is required.');
+    if (!category.trim()) errors.push('Category is required.');
+
+    const sp = Number(sellingPrice);
+    if (!sellingPrice || isNaN(sp) || sp <= 0) {
+      errors.push('Selling price must be greater than zero.');
     }
 
-    const batch: MedicineBatch = {
-      batchNumber: newBatchNumber.trim() || `BT-${Math.floor(100 + Math.random() * 900)}`,
-      quantity: Number(newBatchQty),
-      expiryDate: newBatchExp,
-    };
+    const minStock = Number(minStockLevel);
+    if (minStockLevel === '' || isNaN(minStock) || minStock < 0) {
+      errors.push('Minimum stock level must be a non-negative number.');
+    }
 
-    setBatches([...batches, batch]);
-    setNewBatchNumber('');
-    setNewBatchQty('');
-    setNewBatchExp('');
-    setError(null);
-  };
-
-  const handleRemoveBatch = (index: number) => {
-    setBatches(batches.filter((_, i) => i !== index));
-  };
-
-  const handleBatchQuantityChange = (index: number, qty: number) => {
-    const updated = [...batches];
-    updated[index].quantity = Math.max(0, qty);
-    setBatches(updated);
+    setValidationErrors(errors);
+    return errors.length === 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-
-    if (!name.trim()) {
-      setError('Medicine name is required.');
-      return;
-    }
-    if (!price || Number(price) <= 0) {
-      setError('Please enter a valid selling price.');
-      return;
-    }
+    if (!validate()) return;
 
     setIsLoading(true);
     try {
       await apiService.updateMedicine(medicine.id, {
         name: name.trim(),
+        genericName: genericName.trim() || undefined,
         category: category.trim(),
-        price: Number(price),
-        minStock: Number(minStock),
-        batches,
+        manufacturer: manufacturer.trim() || undefined,
+        description: description.trim() || undefined,
+        unit: unit.trim().toLowerCase(),
+        minStockLevel: Number(minStockLevel),
+        sellingPrice: Number(sellingPrice),
+        purchasePrice: purchasePrice ? Number(purchasePrice) : undefined,
       });
 
       onSuccess();
       onClose();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to update medicine.';
-      setError(msg);
+      setValidationErrors([msg]);
     } finally {
       setIsLoading(false);
     }
@@ -107,12 +108,12 @@ export const EditMedicineModal: React.FC<EditMedicineModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border border-gray-100 max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-xl border border-gray-100 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between pb-4 border-b border-gray-100">
           <div>
             <h3 className="text-lg font-bold text-gray-900">Edit Medicine Details</h3>
             <p className="text-xs text-pharmacy-text-muted mt-0.5">
-              Update pricing, minimum alert thresholds, or batch quantities
+              Update pricing, pharmaceutical categorization, or minimum alert levels
             </p>
           </div>
           <button
@@ -123,34 +124,56 @@ export const EditMedicineModal: React.FC<EditMedicineModalProps> = ({
           </button>
         </div>
 
-        {error && (
-          <div className="mt-4 p-3 rounded-lg bg-red-50 border border-red-200 flex items-center gap-2 text-xs text-red-700">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{error}</span>
+        {validationErrors.length > 0 && (
+          <div className="mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700">
+            <div className="flex items-center gap-1.5 font-bold mb-1">
+              <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+              <span>Please fix the following:</span>
+            </div>
+            <ul className="list-disc pl-5 space-y-0.5">
+              {validationErrors.map((err, idx) => (
+                <li key={idx}>{err}</li>
+              ))}
+            </ul>
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4 text-xs">
-          <div>
-            <label className="block font-semibold text-gray-700 mb-1">
-              Medicine Name *
-            </label>
-            <input
-              type="text"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-[#087F5B]/30 focus:border-[#087F5B]"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block font-semibold text-gray-700 mb-1">
+                Medicine Name *
+              </label>
+              <input
+                type="text"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-[#087F5B]/30 focus:border-[#087F5B]"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-gray-700 mb-1">
+                Generic Name (Composition)
+              </label>
+              <input
+                type="text"
+                value={genericName}
+                onChange={(e) => setGenericName(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-[#087F5B]/30 focus:border-[#087F5B]"
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block font-semibold text-gray-700 mb-1">
-                Category
+                Category *
               </label>
               <input
                 type="text"
+                required
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-[#087F5B]/30 focus:border-[#087F5B]"
@@ -159,112 +182,88 @@ export const EditMedicineModal: React.FC<EditMedicineModalProps> = ({
 
             <div>
               <label className="block font-semibold text-gray-700 mb-1">
-                Selling Price (₹) *
+                Manufacturer
               </label>
               <input
-                type="number"
-                step="0.01"
-                min="0"
-                required
-                value={price}
-                onChange={(e) => setPrice(e.target.value)}
+                type="text"
+                value={manufacturer}
+                onChange={(e) => setManufacturer(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-[#087F5B]/30 focus:border-[#087F5B]"
               />
             </div>
 
             <div>
               <label className="block font-semibold text-gray-700 mb-1">
-                Min Stock Alert *
+                Unit of Measure *
+              </label>
+              <select
+                value={unit}
+                onChange={(e) => setUnit(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white font-medium focus:outline-hidden focus:ring-2 focus:ring-[#087F5B]/30 focus:border-[#087F5B]"
+              >
+                {unitOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-semibold text-gray-700 mb-1">
+              Medicine Description
+            </label>
+            <textarea
+              rows={2}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-[#087F5B]/30 focus:border-[#087F5B]"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-gray-100">
+            <div>
+              <label className="block font-semibold text-gray-700 mb-1">
+                Selling Price (₹) *
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                required
+                value={sellingPrice}
+                onChange={(e) => setSellingPrice(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-[#087F5B]/30 focus:border-[#087F5B]"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-gray-700 mb-1">
+                Purchase Price (₹)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={purchasePrice}
+                onChange={(e) => setPurchasePrice(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-[#087F5B]/30 focus:border-[#087F5B]"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-gray-700 mb-1">
+                Min. Stock Level *
               </label>
               <input
                 type="number"
                 min="0"
                 required
-                value={minStock}
-                onChange={(e) => setMinStock(e.target.value)}
+                value={minStockLevel}
+                onChange={(e) => setMinStockLevel(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-[#087F5B]/30 focus:border-[#087F5B]"
               />
-            </div>
-          </div>
-
-          {/* Batches Section */}
-          <div className="pt-2 border-t border-gray-100">
-            <div className="flex items-center justify-between mb-2">
-              <label className="font-semibold text-gray-800">
-                Tracked Batches & Expiry Dates
-              </label>
-              <span className="text-[11px] text-gray-500">
-                Total Stock: {batches.reduce((sum, b) => sum + b.quantity, 0)} units
-              </span>
-            </div>
-
-            <div className="space-y-2 mb-3 max-h-40 overflow-y-auto">
-              {batches.map((batch, index) => (
-                <div
-                  key={`${batch.batchNumber}-${index}`}
-                  className="flex items-center justify-between gap-2 p-2 bg-gray-50 rounded-lg border border-gray-200"
-                >
-                  <div className="min-w-0 flex-1">
-                    <span className="font-mono font-semibold text-gray-800">
-                      {batch.batchNumber}
-                    </span>
-                    <span className="text-gray-500 ml-2">Exp: {batch.expiryDate}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      min="0"
-                      value={batch.quantity}
-                      onChange={(e) => handleBatchQuantityChange(index, Number(e.target.value))}
-                      className="w-20 px-2 py-1 rounded border border-gray-300 text-center font-bold"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveBatch(index)}
-                      className="p-1 text-red-500 hover:text-red-700"
-                      title="Remove Batch"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Add another batch row */}
-            <div className="p-3 bg-gray-50/70 border border-dashed border-gray-300 rounded-lg space-y-2">
-              <p className="text-[11px] font-semibold text-gray-600">Add Another Batch to Inventory</p>
-              <div className="grid grid-cols-3 gap-2">
-                <input
-                  type="text"
-                  placeholder="Batch No."
-                  value={newBatchNumber}
-                  onChange={(e) => setNewBatchNumber(e.target.value)}
-                  className="px-2 py-1 bg-white rounded border border-gray-300"
-                />
-                <input
-                  type="number"
-                  placeholder="Qty"
-                  min="1"
-                  value={newBatchQty}
-                  onChange={(e) => setNewBatchQty(e.target.value)}
-                  className="px-2 py-1 bg-white rounded border border-gray-300"
-                />
-                <input
-                  type="date"
-                  value={newBatchExp}
-                  onChange={(e) => setNewBatchExp(e.target.value)}
-                  className="px-2 py-1 bg-white rounded border border-gray-300"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={handleAddBatch}
-                className="w-full py-1.5 rounded bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold flex items-center justify-center gap-1"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Append Batch</span>
-              </button>
             </div>
           </div>
 
@@ -282,7 +281,7 @@ export const EditMedicineModal: React.FC<EditMedicineModalProps> = ({
               className="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-[#087F5B] hover:bg-[#066347] text-white font-semibold transition-colors disabled:opacity-50"
             >
               <Save className="w-4 h-4" />
-              <span>{isLoading ? 'Saving Changes...' : 'Save Changes'}</span>
+              <span>{isLoading ? 'Saving...' : 'Save Changes'}</span>
             </button>
           </div>
         </form>
