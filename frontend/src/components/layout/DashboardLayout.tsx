@@ -2,31 +2,25 @@ import React, { useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
-import ConnectionBadge from '../ui/ConnectionBadge';
+import { ShopSettingsProvider, useShopSettings } from '../../context/ShopSettingsContext';
 
-export const DashboardLayout: React.FC = () => {
+const LayoutContent: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
+  const { settings } = useShopSettings();
 
-  // Get human friendly title based on path
   const getPageTitle = (pathname: string): string => {
     switch (pathname) {
       case '/':
-        return 'Pharmacy Operations Dashboard';
+        return 'Pharmacy Dashboard';
       case '/inventory':
-        return 'Inventory Management';
+        return 'Medicine Inventory';
       case '/sales':
-        return 'Sales & Point of Sale';
-      case '/suppliers':
-        return 'Suppliers & Procurement';
-      case '/reports':
-        return 'Analytics & Reports';
-      case '/forecasting':
-        return 'AI Demand Forecasting';
+        return 'Point of Sale & Billing';
       case '/settings':
-        return 'System Settings';
+        return 'Pharmacy Settings';
       default:
-        return 'Smart Pharmacy System';
+        return 'PharmaSync';
     }
   };
 
@@ -42,22 +36,25 @@ export const DashboardLayout: React.FC = () => {
           onOpenMobileMenu={() => setSidebarOpen(true)}
         />
 
-        {/* Small screen status bar */}
-        <div className="sm:hidden px-4 py-2 bg-gray-50 border-b border-gray-200">
-          <ConnectionBadge />
-        </div>
-
         {/* Page Content */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
           <Outlet />
         </main>
 
-        {/* Subtle Footer */}
+        {/* Simple Footer */}
         <footer className="py-4 px-6 border-t border-gray-200 text-center text-xs text-pharmacy-text-muted">
-          Smart Pharmacy Inventory & Demand Forecasting System • Phase 1 Architecture
+          {settings.shopName} • PharmaSync Inventory System
         </footer>
       </div>
     </div>
+  );
+};
+
+export const DashboardLayout: React.FC = () => {
+  return (
+    <ShopSettingsProvider>
+      <LayoutContent />
+    </ShopSettingsProvider>
   );
 };
 

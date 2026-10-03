@@ -1,7 +1,16 @@
 import React from 'react';
-import { Sparkles, Calendar, Info } from 'lucide-react';
+import { Plus, ShoppingCart, Package } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { useShopSettings } from '../../context/ShopSettingsContext';
 
-export const WelcomeBanner: React.FC = () => {
+interface WelcomeBannerProps {
+  onOpenAddMedicine?: () => void;
+}
+
+export const WelcomeBanner: React.FC<WelcomeBannerProps> = ({ onOpenAddMedicine }) => {
+  const { settings } = useShopSettings();
+  const navigate = useNavigate();
+
   const currentDate = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'short',
@@ -11,30 +20,51 @@ export const WelcomeBanner: React.FC = () => {
 
   return (
     <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-subtle mb-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
         <div>
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#DDF5E9] text-[#087F5B] text-xs font-semibold mb-2">
-            <Sparkles className="w-3.5 h-3.5" />
-            Operational Console
+          <div className="text-xs font-semibold text-[#087F5B] uppercase tracking-wider mb-1">
+            {currentDate}
           </div>
-          <h2 className="text-2xl sm:text-3xl font-bold text-pharmacy-text-main tracking-tight">
-            Good morning, Dr. Vance! 👋
+          {/* Prominent Medical Shop Name */}
+          <h2 className="text-2xl sm:text-3xl font-extrabold text-gray-900 tracking-tight">
+            Welcome to <span className="text-[#087F5B]">{settings.shopName}</span>
           </h2>
-          <p className="text-sm text-pharmacy-text-muted mt-1">
-            Here's your pharmacy overview. 14 items require immediate reordering attention.
+          <p className="text-sm text-pharmacy-text-muted mt-1.5">
+            Practical inventory and sales management for your daily retail pharmacy counter.
           </p>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-          <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">
-            <Calendar className="w-4 h-4 text-[#087F5B]" />
-            <span>{currentDate}</span>
-          </div>
+        {/* Quick Actions */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            onClick={() => {
+              if (onOpenAddMedicine) {
+                onOpenAddMedicine();
+              } else {
+                navigate('/inventory');
+              }
+            }}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#087F5B] hover:bg-[#066347] text-white text-xs font-semibold shadow-xs transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Medicine</span>
+          </button>
 
-          <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50/80 px-3 py-2 rounded-lg border border-amber-200/50">
-            <Info className="w-4 h-4 text-amber-600 shrink-0" />
-            <span>Phase 1: Illustrative preview data</span>
-          </div>
+          <button
+            onClick={() => navigate('/sales')}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#DDF5E9] hover:bg-[#c9eedc] text-[#087F5B] text-xs font-semibold transition-colors"
+          >
+            <ShoppingCart className="w-4 h-4" />
+            <span>Record Sale</span>
+          </button>
+
+          <button
+            onClick={() => navigate('/inventory')}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold transition-colors"
+          >
+            <Package className="w-4 h-4" />
+            <span>View Inventory</span>
+          </button>
         </div>
       </div>
     </div>
