@@ -1,10 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import { pharmacyStore } from '../services/pharmacyStore.js';
 
-export function getSuppliers(req: Request, res: Response, next: NextFunction): void {
+export async function getSuppliers(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const search = req.query.search as string | undefined;
-    const suppliers = pharmacyStore.getAllSuppliers(search);
+    const suppliers = await pharmacyStore.getAllSuppliers(search);
     res.status(200).json({
       status: 'success',
       data: suppliers,
@@ -15,10 +15,10 @@ export function getSuppliers(req: Request, res: Response, next: NextFunction): v
   }
 }
 
-export function getSupplierById(req: Request, res: Response, next: NextFunction): void {
+export async function getSupplierById(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
-    const supplier = pharmacyStore.getSupplierById(id);
+    const supplier = await pharmacyStore.getSupplierById(id);
     if (!supplier) {
       res.status(404).json({
         status: 'error',
@@ -28,7 +28,7 @@ export function getSupplierById(req: Request, res: Response, next: NextFunction)
     }
 
     // Attach purchase records associated with this supplier for quick view
-    const purchases = pharmacyStore.getAllPurchases({ supplierId: id });
+    const purchases = await pharmacyStore.getAllPurchases({ supplierId: id });
 
     res.status(200).json({
       status: 'success',
@@ -42,7 +42,7 @@ export function getSupplierById(req: Request, res: Response, next: NextFunction)
   }
 }
 
-export function createSupplier(req: Request, res: Response, next: NextFunction): void {
+export async function createSupplier(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { name, contactPerson, phone, email, address } = req.body;
 
@@ -62,7 +62,7 @@ export function createSupplier(req: Request, res: Response, next: NextFunction):
       return;
     }
 
-    const supplier = pharmacyStore.addSupplier({
+    const supplier = await pharmacyStore.addSupplier({
       name,
       contactPerson,
       phone,
@@ -84,12 +84,12 @@ export function createSupplier(req: Request, res: Response, next: NextFunction):
   }
 }
 
-export function updateSupplier(req: Request, res: Response, next: NextFunction): void {
+export async function updateSupplier(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
     const { name, contactPerson, phone, email, address } = req.body;
 
-    const updated = pharmacyStore.updateSupplier(id, {
+    const updated = await pharmacyStore.updateSupplier(id, {
       name,
       contactPerson,
       phone,
@@ -119,10 +119,10 @@ export function updateSupplier(req: Request, res: Response, next: NextFunction):
   }
 }
 
-export function deleteSupplier(req: Request, res: Response, next: NextFunction): void {
+export async function deleteSupplier(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
-    const deleted = pharmacyStore.deleteSupplier(id);
+    const deleted = await pharmacyStore.deleteSupplier(id);
 
     if (!deleted) {
       res.status(404).json({

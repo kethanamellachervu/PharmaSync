@@ -1,11 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
 import { pharmacyStore } from '../services/pharmacyStore.js';
-import { supabaseService } from '../services/supabaseService.js';
+import { testSupabaseConnection } from '../config/supabase.js';
+import { envConfig } from '../config/env.js';
 
 // 1. List all medicines
-export function getInventory(req: Request, res: Response, next: NextFunction): void {
+export async function getInventory(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const medicines = pharmacyStore.getAllMedicines();
+    const medicines = await pharmacyStore.getAllMedicines();
     res.status(200).json({
       status: 'success',
       count: medicines.length,
@@ -17,10 +18,10 @@ export function getInventory(req: Request, res: Response, next: NextFunction): v
 }
 
 // 2. Fetch single medicine details
-export function getMedicineById(req: Request, res: Response, next: NextFunction): void {
+export async function getMedicineById(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
-    const medicine = pharmacyStore.getMedicineById(id);
+    const medicine = await pharmacyStore.getMedicineById(id);
 
     if (!medicine) {
       res.status(404).json({
@@ -40,7 +41,7 @@ export function getMedicineById(req: Request, res: Response, next: NextFunction)
 }
 
 // 3. Create a new medicine
-export function addMedicine(req: Request, res: Response, next: NextFunction): void {
+export async function addMedicine(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const {
       name,
@@ -95,7 +96,7 @@ export function addMedicine(req: Request, res: Response, next: NextFunction): vo
       return;
     }
 
-    const created = pharmacyStore.addMedicine({
+    const created = await pharmacyStore.addMedicine({
       name,
       genericName,
       category,
@@ -126,7 +127,7 @@ export function addMedicine(req: Request, res: Response, next: NextFunction): vo
 }
 
 // 4. Update medicine details
-export function updateMedicine(req: Request, res: Response, next: NextFunction): void {
+export async function updateMedicine(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
     const {
@@ -150,7 +151,7 @@ export function updateMedicine(req: Request, res: Response, next: NextFunction):
       return;
     }
 
-    const updated = pharmacyStore.updateMedicine(id, {
+    const updated = await pharmacyStore.updateMedicine(id, {
       name,
       genericName,
       category,
@@ -179,10 +180,10 @@ export function updateMedicine(req: Request, res: Response, next: NextFunction):
 }
 
 // 5. Delete a medicine
-export function deleteMedicine(req: Request, res: Response, next: NextFunction): void {
+export async function deleteMedicine(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
-    const deleted = pharmacyStore.deleteMedicine(id);
+    const deleted = await pharmacyStore.deleteMedicine(id);
 
     if (!deleted) {
       res.status(404).json({ status: 'error', message: 'Medicine not found.' });
@@ -199,17 +200,17 @@ export function deleteMedicine(req: Request, res: Response, next: NextFunction):
 }
 
 // 6. List batches for a medicine
-export function getBatches(req: Request, res: Response, next: NextFunction): void {
+export async function getBatches(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
-    const medicine = pharmacyStore.getMedicineById(id);
+    const medicine = await pharmacyStore.getMedicineById(id);
 
     if (!medicine) {
       res.status(404).json({ status: 'error', message: 'Medicine not found.' });
       return;
     }
 
-    const batches = pharmacyStore.getBatches(id);
+    const batches = await pharmacyStore.getBatches(id);
     res.status(200).json({
       status: 'success',
       data: batches,
@@ -220,7 +221,7 @@ export function getBatches(req: Request, res: Response, next: NextFunction): voi
 }
 
 // 7. Add a new batch to an existing medicine
-export function addBatch(req: Request, res: Response, next: NextFunction): void {
+export async function addBatch(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
     const { batchNumber, quantity, mfgDate, expiryDate, reason } = req.body;
@@ -245,7 +246,7 @@ export function addBatch(req: Request, res: Response, next: NextFunction): void 
       return;
     }
 
-    const newBatch = pharmacyStore.addBatch(id, {
+    const newBatch = await pharmacyStore.addBatch(id, {
       batchNumber,
       quantity: Number(quantity),
       mfgDate,
@@ -253,7 +254,7 @@ export function addBatch(req: Request, res: Response, next: NextFunction): void 
       reason,
     });
 
-    const updatedMedicine = pharmacyStore.getMedicineById(id);
+    const updatedMedicine = await pharmacyStore.getMedicineById(id);
 
     res.status(201).json({
       status: 'success',
@@ -273,7 +274,7 @@ export function addBatch(req: Request, res: Response, next: NextFunction): void 
 }
 
 // 8. Update batch information / adjust quantity
-export function updateBatch(req: Request, res: Response, next: NextFunction): void {
+export async function updateBatch(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id, batchId } = req.params;
     const { batchNumber, quantity, mfgDate, expiryDate, reason } = req.body;
@@ -290,7 +291,7 @@ export function updateBatch(req: Request, res: Response, next: NextFunction): vo
       return;
     }
 
-    const updated = pharmacyStore.updateBatch(id, batchId, {
+    const updated = await pharmacyStore.updateBatch(id, batchId, {
       batchNumber,
       quantity: quantity !== undefined ? Number(quantity) : undefined,
       mfgDate,
@@ -303,7 +304,7 @@ export function updateBatch(req: Request, res: Response, next: NextFunction): vo
       return;
     }
 
-    const updatedMedicine = pharmacyStore.getMedicineById(id);
+    const updatedMedicine = await pharmacyStore.getMedicineById(id);
 
     res.status(200).json({
       status: 'success',
@@ -323,12 +324,12 @@ export function updateBatch(req: Request, res: Response, next: NextFunction): vo
 }
 
 // 9. View stock movement history
-export function getStockMovements(req: Request, res: Response, next: NextFunction): void {
+export async function getStockMovements(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
     const limit = req.query.limit ? Number(req.query.limit) : 50;
 
-    const movements = pharmacyStore.getStockMovements(id, limit);
+    const movements = await pharmacyStore.getStockMovements(id, limit);
     res.status(200).json({
       status: 'success',
       data: movements,
@@ -339,9 +340,9 @@ export function getStockMovements(req: Request, res: Response, next: NextFunctio
 }
 
 // 10. View inventory alerts
-export function getInventoryAlerts(req: Request, res: Response, next: NextFunction): void {
+export async function getInventoryAlerts(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const alerts = pharmacyStore.getInventoryAlerts();
+    const alerts = await pharmacyStore.getInventoryAlerts();
     res.status(200).json({
       status: 'success',
       data: alerts,
@@ -352,7 +353,7 @@ export function getInventoryAlerts(req: Request, res: Response, next: NextFuncti
 }
 
 // 11. Reusable FEFO stock allocation
-export function allocateFefoStock(req: Request, res: Response, next: NextFunction): void {
+export async function allocateFefoStock(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { medicineId, quantity, reason } = req.body;
 
@@ -365,7 +366,7 @@ export function allocateFefoStock(req: Request, res: Response, next: NextFunctio
       return;
     }
 
-    const result = pharmacyStore.allocateFefo(medicineId, Number(quantity), reason);
+    const result = await pharmacyStore.allocateFefo(medicineId, Number(quantity), reason);
 
     if (!result.success) {
       res.status(400).json({
@@ -390,30 +391,47 @@ export function allocateFefoStock(req: Request, res: Response, next: NextFunctio
   }
 }
 
-// 12. Supabase Integration Status check
+// 12. Supabase Database Status check
 export async function getDatabaseStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const status = await supabaseService.getStatus();
+    const status = await testSupabaseConnection();
     res.status(200).json({
       status: 'success',
-      data: status,
+      data: {
+        isConfigured: envConfig.isSupabaseConfigured,
+        isConnected: status.isConnected,
+        message: status.message,
+        latencyMs: status.latencyMs,
+      },
     });
   } catch (error) {
     next(error);
   }
 }
 
-// 13. Dashboard overview (maintains backward compatibility with DashboardPage)
-export function getDashboardOverview(req: Request, res: Response, next: NextFunction): void {
+// 13. Dashboard overview
+export async function getDashboardOverview(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const enriched = pharmacyStore.getAllMedicines();
-    const alerts = pharmacyStore.getInventoryAlerts();
-    const settings = pharmacyStore.getSettings();
+    const enriched = await pharmacyStore.getAllMedicines();
+    const alerts = await pharmacyStore.getInventoryAlerts();
+    const settings = await pharmacyStore.getSettings();
+    const suppliers = await pharmacyStore.getAllSuppliers();
+    const purchases = await pharmacyStore.getAllPurchases();
 
     const totalMedicines = enriched.length;
     const availableStock = enriched.reduce((sum, m) => sum + m.usableStock, 0);
-    const todaySalesAmount = pharmacyStore.getTodaySalesAmount();
-    const recentSales = pharmacyStore.getAllSales().slice(0, 5);
+    const todaySalesAmount = await pharmacyStore.getTodaySalesAmount();
+    const todayPurchaseAmount = await pharmacyStore.getTodayPurchaseAmount();
+    const monthSalesAmount = await pharmacyStore.getMonthSalesAmount();
+    const salesTrend7Days = await pharmacyStore.getRecentSalesTrend(7);
+    const categoryDistribution = await pharmacyStore.getCategoryDistribution();
+    const recentSales = (await pharmacyStore.getAllSales()).slice(0, 5);
+
+    const totalSuppliers = suppliers.length;
+    const activeSuppliers = suppliers.filter((s) => s.status !== 'Inactive').length;
+    const pendingPurchaseOrders = purchases.filter((p) => p.status === 'pending').length;
+    const totalPurchases = purchases.length;
+    const totalPurchaseAmount = purchases.reduce((sum, p) => sum + (p.totalAmount || 0), 0);
 
     res.status(200).json({
       status: 'success',
@@ -425,6 +443,15 @@ export function getDashboardOverview(req: Request, res: Response, next: NextFunc
         nearExpiryBatchCount: alerts.summary.nearExpiryBatchCount,
         expiredBatchCount: alerts.summary.expiredBatchCount,
         todaySalesAmount,
+        todayPurchaseAmount,
+        monthSalesAmount,
+        salesTrend7Days,
+        categoryDistribution,
+        totalSuppliers,
+        activeSuppliers,
+        pendingPurchaseOrders,
+        totalPurchases,
+        totalPurchaseAmount,
         lowStockMedicines: alerts.lowStockMedicines.map((m) => ({
           id: m.id,
           name: m.name,

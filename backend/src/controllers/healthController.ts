@@ -1,17 +1,22 @@
 import { Request, Response } from 'express';
 import { envConfig } from '../config/env.js';
+import { testSupabaseConnection } from '../config/supabase.js';
 
-export function getHealthStatus(req: Request, res: Response): void {
+export async function getHealthStatus(req: Request, res: Response): Promise<void> {
+  const dbStatus = await testSupabaseConnection();
+
   res.status(200).json({
     status: 'success',
     message: 'Pharmacy backend is running',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
-    supabase: {
+    database: {
+      type: 'Supabase (PostgreSQL)',
       configured: envConfig.isSupabaseConfigured,
-      status: envConfig.isSupabaseConfigured
-        ? 'Configured'
-        : 'Not configured (optional for Phase 1)',
+      connected: dbStatus.isConnected,
+      latencyMs: dbStatus.latencyMs,
+      message: dbStatus.message,
     },
   });
 }
+

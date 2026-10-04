@@ -1,12 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
 import { pharmacyStore } from '../services/pharmacyStore.js';
 
-export function getSales(req: Request, res: Response, next: NextFunction): void {
+export async function getSales(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const search = req.query.search as string | undefined;
     const date = req.query.date as string | undefined;
 
-    const sales = pharmacyStore.getAllSales({ search, date });
+    const sales = await pharmacyStore.getAllSales({ search, date });
     res.status(200).json({
       status: 'success',
       data: sales,
@@ -17,10 +17,22 @@ export function getSales(req: Request, res: Response, next: NextFunction): void 
   }
 }
 
-export function getSaleById(req: Request, res: Response, next: NextFunction): void {
+export async function getNextInvoice(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const nextInvoice = await pharmacyStore.getNextInvoiceNumber();
+    res.status(200).json({
+      status: 'success',
+      data: { invoiceNumber: nextInvoice },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getSaleById(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
-    const sale = pharmacyStore.getSaleById(id);
+    const sale = await pharmacyStore.getSaleById(id);
 
     if (!sale) {
       res.status(404).json({
@@ -39,11 +51,11 @@ export function getSaleById(req: Request, res: Response, next: NextFunction): vo
   }
 }
 
-export function recordSale(req: Request, res: Response, next: NextFunction): void {
+export async function recordSale(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { items, medicineId, quantity, customerName, idempotencyKey } = req.body;
 
-    // Multi-item sales support (Phase 3)
+    // Multi-item sales support
     if (items && Array.isArray(items)) {
       if (items.length === 0) {
         res.status(400).json({
@@ -53,7 +65,7 @@ export function recordSale(req: Request, res: Response, next: NextFunction): voi
         return;
       }
 
-      const sale = pharmacyStore.createSale({
+      const sale = await pharmacyStore.createSale({
         customerName,
         items,
         idempotencyKey,
@@ -67,7 +79,7 @@ export function recordSale(req: Request, res: Response, next: NextFunction): voi
       return;
     }
 
-    // Single-item backward-compatible support (Phase 1 & 2)
+    // Single-item backward-compatible support
     if (!medicineId || !quantity || Number(quantity) <= 0) {
       res.status(400).json({
         status: 'error',
@@ -76,7 +88,7 @@ export function recordSale(req: Request, res: Response, next: NextFunction): voi
       return;
     }
 
-    const result = pharmacyStore.recordSale(medicineId, Number(quantity));
+    const result = await pharmacyStore.recordSale(medicineId, Number(quantity));
 
     res.status(201).json({
       status: 'success',

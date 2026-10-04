@@ -1,0 +1,207 @@
+import { Request, Response, NextFunction } from 'express';
+import {
+  forecastingService,
+  DemandTrend,
+  ReorderUrgency,
+  ReviewStatus,
+} from '../services/forecastingService.js';
+import { pharmacyStore } from '../services/pharmacyStore.js';
+
+export async function getForecastOverview(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const horizon = req.query.period
+      ? Number(req.query.period)
+      : req.query.horizon
+      ? Number(req.query.horizon)
+      : req.query.horizonDays
+      ? Number(req.query.horizonDays)
+      : undefined;
+    const overview = await forecastingService.getForecastOverview(horizon);
+
+    res.status(200).json({
+      status: 'success',
+      data: overview,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getMedicineForecasts(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const search = req.query.search as string | undefined;
+    const trend = req.query.trend as DemandTrend | 'all' | undefined;
+    const urgency = req.query.urgency as ReorderUrgency | 'all' | undefined;
+    const period = req.query.period
+      ? Number(req.query.period)
+      : req.query.horizon
+      ? Number(req.query.horizon)
+      : req.query.horizonDays
+      ? Number(req.query.horizonDays)
+      : 30;
+
+    const medicines = await pharmacyStore.getAllMedicines();
+    const allSales = await pharmacyStore.getAllSales();
+    let forecasts = await Promise.all(
+      medicines.map((m) =>
+        forecastingService.calculateMedicineForecast(m.id, period, m, allSales)
+      )
+    );
+
+    // Apply search filter
+    if (search && search.trim()) {
+      const q = search.trim().toLowerCase();
+      forecasts = forecasts.filter(
+        (f) =>
+          f.medicineName.toLowerCase().includes(q) ||
+          (f.genericName && f.genericName.toLowerCase().includes(q)) ||
+          f.category.toLowerCase().includes(q) ||
+          f.medicineId.toLowerCase().includes(q)
+      );
+    }
+
+    // Apply trend filter
+    if (trend && trend !== 'all') {
+      forecasts = forecasts.filter((f) => f.demandTrend === trend);
+    }
+
+    // Apply urgency filter
+    if (urgency && urgency !== 'all') {
+      forecasts = forecasts.filter((f) => f.urgency === urgency);
+    }
+
+    res.status(200).json({
+      status: 'success',
+      total: forecasts.length,
+      period,
+      data: forecasts,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getMedicineForecastById(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { id } = req.params;
+    const period = req.query.period
+      ? Number(req.query.period)
+      : req.query.horizon
+      ? Number(req.query.horizon)
+      : req.query.horizonDays
+      ? Number(req.query.horizonDays)
+      : undefined;
+
+    const med = await pharmacyStore.getMedicineById(id);
+    if (!med) {
+      res.status(404).json({
+        status: 'error',
+        message: `Medicine with ID "${id}" not found.`,
+      });
+      return;
+    }
+
+    const detail = await forecastingService.getMedicineForecastDetail(id, period);
+    res.status(200).json({
+      status: 'success',
+      data: detail,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getReorderRecommendations(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const urgency = req.query.urgency as ReorderUrgency | 'all' | undefined;
+    const category = req.query.category as string | undefined;
+    const stockStatus = req.query.stockStatus as string | undefined;
+    const reviewStatus = req.query.reviewStatus as ReviewStatus | 'all' | undefined;
+    const horizonDays = req.query.horizonDays
+      ? Number(req.query.horizonDays)
+      : req.query.horizon
+      ? Number(req.query.horizon)
+      : req.query.period
+      ? Number(req.query.period)
+      : undefined;
+
+    const recommendations = await forecastingService.getReorderRecommendations({
+      urgency,
+      category,
+      stockStatus,
+      reviewStatus,
+      horizonDays,
+    });
+
+    res.status(200).json({
+      status: 'success',
+      total: recommendations.length,
+      data: recommendations,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function reviewReorderRecommendation(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { id } = req.params;
+    const { status, adjustedQuantity, notes } = req.body;
+
+    if (!status) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Review status ("pending", "reviewed", or "dismissed") is required.',
+      });
+      return;
+    }
+
+    const med = await pharmacyStore.getMedicineById(id);
+    if (!med) {
+      res.status(404).json({
+        status: 'error',
+        message: `Medicine with ID "${id}" not found.`,
+      });
+      return;
+    }
+
+    const updated = await forecastingService.reviewRecommendation(id, {
+      status,
+      adjustedQuantity: adjustedQuantity !== undefined ? Number(adjustedQuantity) : undefined,
+      notes,
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: `Reorder recommendation for "${updated.medicineName}" marked as ${status}.`,
+      data: updated,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getForecastSettings(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const settings = await forecastingService.getSettings();
+    res.status(200).json({
+      status: 'success',
+      data: settings,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function updateForecastSettings(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const updated = await forecastingService.updateSettings(req.body);
+    res.status(200).json({
+      status: 'success',
+      message: 'Forecasting settings updated successfully.',
+      data: updated,
+    });
+  } catch (error) {
+    next(error);
+  }
+}

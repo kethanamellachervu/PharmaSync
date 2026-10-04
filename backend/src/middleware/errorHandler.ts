@@ -13,7 +13,10 @@ export function errorHandler(
   next: NextFunction
 ): void {
   const statusCode = err.statusCode || 500;
-  const message = err.message || 'Internal Server Error';
+  const message =
+    statusCode >= 500 && process.env.NODE_ENV === 'production'
+      ? 'An internal server error occurred. Please contact the system administrator.'
+      : err.message || 'Internal Server Error';
 
   console.error(`[Error] ${req.method} ${req.originalUrl}:`, {
     message: err.message,

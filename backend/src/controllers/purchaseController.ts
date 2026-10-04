@@ -1,12 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
 import { pharmacyStore } from '../services/pharmacyStore.js';
 
-export function getPurchases(req: Request, res: Response, next: NextFunction): void {
+export async function getPurchases(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const supplierId = req.query.supplierId as string | undefined;
     const date = req.query.date as string | undefined;
 
-    const purchases = pharmacyStore.getAllPurchases({ supplierId, date });
+    const purchases = await pharmacyStore.getAllPurchases({ supplierId, date });
     res.status(200).json({
       status: 'success',
       data: purchases,
@@ -17,10 +17,10 @@ export function getPurchases(req: Request, res: Response, next: NextFunction): v
   }
 }
 
-export function getPurchaseById(req: Request, res: Response, next: NextFunction): void {
+export async function getPurchaseById(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
-    const purchase = pharmacyStore.getPurchaseById(id);
+    const purchase = await pharmacyStore.getPurchaseById(id);
 
     if (!purchase) {
       res.status(404).json({
@@ -39,7 +39,7 @@ export function getPurchaseById(req: Request, res: Response, next: NextFunction)
   }
 }
 
-export function createPurchase(req: Request, res: Response, next: NextFunction): void {
+export async function createPurchase(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { supplierId, items, notes } = req.body;
 
@@ -59,7 +59,7 @@ export function createPurchase(req: Request, res: Response, next: NextFunction):
       return;
     }
 
-    const purchase = pharmacyStore.createPurchase({
+    const purchase = await pharmacyStore.createPurchase({
       supplierId,
       items,
       notes,

@@ -1,117 +1,275 @@
-# PharmaSync – Smart Pharmacy Inventory Management System
+# PharmaSync – Smart Pharmacy Inventory Management & AI Forecasting System
 
-A clean, modern, and practical healthcare SaaS system designed specifically for local and retail pharmacies. Built with React, TypeScript, Vite, Tailwind CSS, Node.js, Express, and Supabase.
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-18.3-61dafb.svg)](https://reactjs.org/)
+[![Vite](https://img.shields.io/badge/Vite-5.4-646cff.svg)](https://vitejs.dev/)
+[![Express](https://img.shields.io/badge/Express-4.21-green.svg)](https://expressjs.com/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-38b2ac.svg)](https://tailwindcss.com/)
+[![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ecf8e.svg)](https://supabase.com/)
 
----
-
-## 🏗️ Phase 2: Complete Pharmacy Inventory Management
-
-Phase 2 introduces comprehensive medicine inventory, multi-batch tracking, strict First-Expiry First-Out (FEFO) stock logic, stock movement auditing, and Supabase database readiness.
-
-### 1. Key Features Implemented
-
-- **Comprehensive Inventory Table (`/inventory`):**
-  - Search by medicine name, generic name, category, or ID.
-  - Filter by category and stock status (**All Items**, **In Stock**, **Low Stock**, **Near Expiry**, **Expired**, **Out of Stock**).
-  - Sort by **Name**, **Quantity**, or **Expiry Date** (ascending/descending).
-  - Clean pagination (8 items/page) with intuitive navigation.
-  - Columns: Medicine Name, Category, Available Quantity, Unit, Selling Price, Batch Number, Expiry Date, Stock Status, Actions.
-
-- **Add & Edit Medicine Modals:**
-  - Full pharmaceutical fields: Medicine Name, Generic Name, Category, Manufacturer, Description, Unit, Min. Stock Level, Selling Price, Purchase Price.
-  - Initial batch details: Batch Number, Quantity, Mfg Date, Expiry Date.
-  - Validations: Positive selling price, non-negative quantity & minimum stock, valid expiry date, and strict validation requiring expiry date to be later than manufacturing date.
-
-- **Multi-Batch Management:**
-  - Independent batch tracking with unique batch numbers per medicine.
-  - View all batches belonging to any medicine.
-  - Register new batches with distinct expiration dates and quantities.
-  - Edit batch quantities or dates with automatic stock movement audit logging.
-  - Prevents duplicate batch records for the same medicine.
-
-- **Stock Status Alerts:**
-  - **Low Stock:** Alerts when usable stock is at or below the minimum safety stock level.
-  - **Near Expiry:** Identifies batches expiring within the next 30 days.
-  - **Expired Batches:** Clearly flags expired batches and **excludes them from usable stock calculations**.
-  - **Out of Stock:** Identifies medicines with zero usable units on shelves.
-
-- **First-Expiry, First-Out (FEFO) Logic:**
-  - Automatically identifies and allocates batches with the earliest expiry dates first.
-  - Completely skips expired batches and zero-quantity batches.
-  - Supports splitting transactions across multiple batches when needed.
-  - Interactive **FEFO Simulation Engine** on the inventory page allows the pharmacist to preview exact allocation paths.
-
-- **Stock Movement History:**
-  - Complete audit trail of all inventory modifications.
-  - Tracks `Stock Added` (intakes/deliveries), `Stock Removed` (dispensing/sales), and `Adjustment` (audit corrections).
-  - Logs date/time, medicine, batch number, delta quantity, and operational reason.
-
-- **Supabase PostgreSQL Schema & Integration:**
-  - SQL schema in `supabase/schema.sql` (`medicines`, `medicine_batches`, `stock_movements`).
-  - Realistic demonstration seed script in `supabase/seed.sql`.
-  - Backend integration service with connection health check and schema validation reporting.
+A modern healthcare SaaS platform designed specifically for community and retail pharmacies. **PharmaSync** streamlines multi-batch pharmaceutical inventory, enforces strict First-Expiry First-Out (FEFO) dispensing, automates purchase intakes, delivers real-time business intelligence, and leverages explainable AI time-series forecasting to guide restocking decisions.
 
 ---
 
-## 🗄️ Supabase PostgreSQL Database Setup
+## 📋 Table of Contents
 
-### Step 1: Run Schema Script
-Open your [Supabase Dashboard](https://supabase.com), navigate to the **SQL Editor**, and execute:
-```sql
--- Located at: supabase/schema.sql
-```
-
-### Step 2: (Optional) Seed Sample Data
-In the **SQL Editor**, execute:
-```sql
--- Located at: supabase/seed.sql
-```
-
-### Step 3: Configure Backend Environment
-Add your project credentials to `backend/.env`:
-```env
-PORT=5000
-FRONTEND_URL=http://localhost:5173
-SUPABASE_URL=https://your-project-id.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
-```
-
-*Note:* If Supabase credentials are not provided, the backend operates in an in-memory repository mode, enabling testing with zero configuration.
+1. [Project Overview](#-project-overview)
+2. [Technology Stack](#-technology-stack)
+3. [Project Directory Structure](#-project-directory-structure)
+4. [Prerequisites & Quickstart](#-prerequisites--quickstart)
+5. [Environment Variables](#-environment-variables)
+6. [Supabase Database Setup & Schema](#-supabase-database-setup--schema)
+7. [Core Workflows Explained](#-core-workflows-explained)
+8. [Security & Optimization Implementations](#-security--optimization-implementations)
+9. [Automated Verification & Testing](#-automated-verification--testing)
+10. [Production Deployment Guide](#-production-deployment-guide)
+11. [Known Limitations & Prototype Boundaries](#-known-limitations--prototype-boundaries)
 
 ---
 
-## 🚀 Running Locally
+## 📖 Project Overview
 
-### Backend Server
+PharmaSync is a modern pharmacy inventory management system with AI‑driven demand forecasting. It provides a responsive React UI, a robust Node/Express API, and optional Supabase PostgreSQL storage. Core features include batch tracking with FEFO allocation, sales processing with idempotency, supplier & purchase management, dashboard analytics, and AI‑based reorder suggestions. The system follows best‑practice security headers, rate limiting, and automated testing.
+
+---
+
+## 🛠️ Technology Stack
+
+| Layer | Technologies |
+| :--- | :--- |
+| **Frontend UI** | React 18, TypeScript, Tailwind CSS, Lucide React, Recharts |
+| **Build & Tooling** | Vite 5 (Rollup code-splitting, manual vendor chunks) |
+| **Backend API** | Node.js, Express 4, TypeScript, tsx, CORS |
+| **Database** | PostgreSQL via Supabase (UUIDs, Triggers, FK Constraints, Indexes) |
+| **Algorithms** | Weighted Moving Average (WMA), Trend Slope Analysis, FEFO Queue |
+
+---
+
+## 📁 Project Directory Structure
+
+```text
+smart-pharmacy/
+├── backend/
+│   ├── src/
+│   │   ├── config/             # Environment validation and credentials
+│   │   ├── controllers/        # Express handlers (inventory, sales, forecast, reports...)
+│   │   ├── middleware/         # Security headers, rate limiting, logging, error handler
+│   │   ├── routes/             # REST routing modules
+│   │   ├── services/           # Business logic (pharmacyStore, forecastingService, supabaseService)
+│   │   ├── app.ts              # Express application factory & middleware pipeline
+│   │   └── server.ts           # HTTP server bootstrap
+│   ├── dist/                   # Production compiled JavaScript
+│   ├── package.json
+│   ├── tsconfig.json
+│   └── .env.example
+├── frontend/
+│   ├── src/
+│   │   ├── components/         # Reusable UI widgets, Sidebar, StatCards, ErrorBoundary
+│   │   ├── pages/              # Lazy-loaded route views (Inventory, Sales, Forecasting, Reorder...)
+│   │   ├── services/           # Typed API HTTP client
+│   │   ├── types/              # Domain interfaces and type contracts
+│   │   ├── App.tsx             # Root router with Suspense and ErrorBoundary
+│   │   └── main.tsx            # DOM root
+│   ├── dist/                   # Minified production distribution bundle
+│   ├── vite.config.ts          # Rollup chunk optimization
+│   ├── package.json
+│   ├── tsconfig.json
+│   └── .env.example
+├── supabase/
+│   ├── schema.sql              # Complete PostgreSQL DDL (13 tables, triggers, indexes)
+│   └── seed.sql                # Demonstration data seed script
+└── README.md                   # System documentation
+```
+
+---
+
+## ⚡ Prerequisites & Quickstart
+
+### Prerequisites
+- **Node.js**: v18.0.0 or higher
+- **npm**: v9.0.0 or higher
+
+### 1. Clone & Install Dependencies
 ```bash
+git clone <repository-url>
+cd smart-pharmacy
+
+# Install Backend Dependencies
 cd backend
 npm install
-npm run dev
-```
-- Server: `http://localhost:5000`
-- Endpoints:
-  - `GET /api/inventory` — List all medicines with batches and stock calculations
-  - `POST /api/inventory` — Add new medicine with initial batch
-  - `GET /api/inventory/:id` — Fetch single medicine details
-  - `PUT /api/inventory/:id` — Update medicine details
-  - `DELETE /api/inventory/:id` — Delete medicine with cascading batches
-  - `GET /api/inventory/:id/batches` — List batches for medicine
-  - `POST /api/inventory/:id/batches` — Add batch to existing medicine
-  - `PUT /api/inventory/:id/batches/:batchId` — Update batch or adjust stock
-  - `GET /api/inventory/movements` — View audit movement history
-  - `GET /api/inventory/alerts` — Stock alerts (low stock, near expiry, expired, out of stock)
-  - `POST /api/inventory/fefo-allocate` — Reusable FEFO stock allocation engine
-  - `GET /api/inventory/database-status` — Supabase connection and table check
 
-### Frontend Application
+# Install Frontend Dependencies
+cd ../frontend
+npm install
+```
+
+### 2. Configure Environment Files
+```bash
+# In backend/
+cp .env.example .env
+
+# In frontend/
+cp .env.example .env
+```
+
+### 3. Run in Development Mode
+Open two terminal tabs:
+
+**Tab 1: Backend API Server**
+```bash
+cd backend
+npm run dev
+# Starts server on http://localhost:5000
+```
+
+**Tab 2: Frontend Client**
 ```bash
 cd frontend
-npm install
 npm run dev
+# Launches Vite dev server on http://localhost:5173
 ```
-- Web Application: `http://localhost:5173`
-- Navigation:
-  - `/` — Pharmacy Overview Dashboard
-  - `/inventory` — Complete Inventory Management & Batches
-  - `/sales` — Point of Sale & Counter Checkout
-  - `/settings` — Pharmacy Store Name & Configuration
+
+Visit **`http://localhost:5173`** in your browser.
+
+---
+
+## 🔑 Environment Variables
+
+### Backend (`backend/.env`)
+| Variable | Default | Purpose |
+| :--- | :--- | :--- |
+| `PORT` | `5000` | Port for the Express HTTP server |
+| `FRONTEND_URL` | `http://localhost:5173` | Primary allowed origin for CORS requests |
+| `ADDITIONAL_ALLOWED_ORIGINS` | *None* | Comma-separated list of additional allowed origins for staging/prod |
+| `SUPABASE_URL` | *Empty* | Supabase project URL (`https://your-id.supabase.co`) |
+| `SUPABASE_SERVICE_ROLE_KEY` | *Empty* | Supabase service role secret (kept server-side only) |
+
+### Frontend (`frontend/.env`)
+| Variable | Default | Purpose |
+| :--- | :--- | :--- |
+| `VITE_API_BASE_URL` | `http://localhost:5000/api` | Base URL used by the frontend Axios/Fetch client |
+
+> 🔒 **Security Notice:** No database connection strings, passwords, or Supabase service keys are ever defined or referenced in the frontend environment.
+
+---
+
+## 🗄️ Supabase Database Setup & Schema
+
+If you wish to use Supabase cloud storage instead of the built-in in-memory store:
+
+1. Create a project at [supabase.com](https://supabase.com).
+2. Go to the **SQL Editor** in your Supabase dashboard.
+3. Paste and run the entire contents of [`supabase/schema.sql`](file:///c:/Users/ketha/smart-pharmacy/supabase/schema.sql).
+4. Run [`supabase/seed.sql`](file:///c:/Users/ketha/smart-pharmacy/supabase/seed.sql) to populate initial inventory and sales data.
+5. In your Supabase Dashboard, go to **Settings > API** to retrieve your `URL` and `service_role` key.
+6. Populate `backend/.env` with these values and restart the backend server.
+
+---
+
+## 🔄 Core Workflows Explained
+
+### 1. Inventory & FEFO Allocation
+- Every medicine has one or more batches with unique batch numbers and expiration dates.
+- Usable stock is calculated exclusively from non-expired batches.
+- Batches expiring within 30 days are flagged with amber badges.
+- When an order is processed, the system automatically pulls from the batch expiring soonest (**FEFO - First Expiry, First Out**).
+
+### 2. Point of Sale & Idempotent Checkout
+- Pharmacists can build a multi-item cart.
+- At checkout, each item is validated against available usable stock across non-expired batches.
+- The request includes an `idempotencyKey` preventing accidental double-billing if the user double-clicks submit.
+- Stock is atomically updated and an audit entry is created in `stock_movements`.
+
+### 3. Purchases & Inward Stock
+- Purchasing logs supplier details, incoming batch numbers, costs, and expiration dates.
+- The engine checks for duplicate batch numbers with conflicting expiration dates to prevent data contamination.
+- Once submitted, inventory usable quantities update immediately.
+
+### 4. AI Demand Forecasting & Smart Reorder
+- **Weighted Moving Average (WMA):**
+  $$\text{Demand Rate} = 0.50 \cdot R_7 + 0.35 \cdot R_{14} + 0.15 \cdot R_{30}$$
+- **Deduction of Batches Expiring in Horizon:**
+  Stock expiring during the selected planning period is subtracted from reliable inventory.
+- **Safety Stock Buffer:**
+  $$\text{Safety Buffer} = \max\left(\text{minStockLevel}, \lceil \text{Daily Demand} \times \text{Buffer Days} \rceil\right)$$
+- **Suggested Reorder Quantity:**
+  $$\text{Reorder Quantity} = \max\left(0, \lceil \text{Forecast Demand} + \text{Safety Buffer} - \text{Reliable Stock} \rceil\right)$$
+- Recommendations are presented for pharmacist review (`pending`, `reviewed`, `dismissed`). A reviewed recommendation does not automatically generate a financial order.
+
+---
+
+## 🛡️ Security & Optimization Implementations
+
+* **OWASP Security Headers**: Custom middleware adds `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `X-XSS-Protection: 1; mode=block`, and removes `X-Powered-By`.
+* **In-Memory Rate Limiting**:
+  - Global API: 1,000 requests per 15-minute window per IP.
+  - State mutations (POST/PUT/DELETE/PATCH): 150 requests per minute per IP.
+* **Safe Production Error Handling**: Stack traces and raw internal error details are stripped when `NODE_ENV=production`.
+* **Client-Side Code-Splitting**: All major views (`ForecastingPage`, `InventoryPage`, `ReportsPage`, etc.) are lazy-loaded via `React.lazy` and `Suspense`, preventing large upfront bundle downloads.
+* **Vendor Bundle Optimization**: Heavy third-party libraries (e.g., Recharts) are isolated into dedicated cacheable chunks (`vendor-charts.js`), bringing individual page chunks down to 4–46 kB.
+* **React Error Boundary**: Catches unhandled UI exceptions and renders an informative recovery card rather than crashing to a blank screen.
+
+---
+
+## 🧪 Automated Verification & Testing
+
+PharmaSync includes an automated verification script that executes 7 test suites validating all API endpoints, database operations, calculations, and security constraints.
+
+### Running the Automated Test Suite
+Ensure the backend server is running on port 5000, then execute:
+```bash
+node scratch/test_phase6_complete.js
+```
+
+### Verified Test Suites
+1. **Health Endpoints & Security Headers**: Validates root `/health`, `/api/health`, standard security headers, rate limit headers, and 404 handlers.
+2. **Inventory Lifecycle & Validation**: Verifies rejection of invalid fields, creation of medicines, multi-batch additions, and usable stock calculations.
+3. **Sales, FEFO Allocation & Idempotency**: Verifies FEFO batch deduction order, duplicate submission rejection via idempotency keys, and over-selling prevention.
+4. **Suppliers & Purchases**: Verifies supplier creation, inward batch additions, stock increments, and rejection of conflicting batch dates.
+5. **Dashboard Analytics & Reports**: Verifies summary statistics, filtered sales reports, inventory valuations, and CSV exports.
+6. **AI Demand Forecasting & Reorder**: Verifies 7d/30d/90d horizons, low-confidence handling for sparse sales, reorder math, and settings persistence.
+7. **Bundle Secret Exposure Audit**: Scans minified production JavaScript chunks to ensure zero exposure of private keys, database passwords, or service role secrets.
+
+---
+
+## 🚢 Production Deployment Guide
+
+### 1. Build Production Assets
+```bash
+# Build Backend
+cd backend
+npm run build
+# Output generated in backend/dist/
+
+# Build Frontend
+cd ../frontend
+npm run build
+# Output generated in frontend/dist/
+```
+
+### 2. Run Backend in Production
+```bash
+cd backend
+NODE_ENV=production PORT=5000 node dist/server.js
+```
+
+### 3. Deploy to Cloud Providers
+
+#### Option A: Containerized / Cloud VM (Docker, Render, Railway, AWS ECS)
+- Expose port `5000`.
+- Health check path: `GET /health` or `GET /api/health`.
+- Set environment variables `PORT`, `FRONTEND_URL`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY`.
+
+#### Option B: Frontend Static Hosting (Vercel, Netlify, Cloudflare Pages, S3/CloudFront)
+- Build command: `npm run build`
+- Publish directory: `frontend/dist`
+- Configure Single Page Application (SPA) redirect rewrite: all routes `/*` rewritten to `/index.html`.
+- Environment variable: `VITE_API_BASE_URL=https://your-backend-api.example.com/api`.
+
+---
+
+## ⚠️ Known Limitations & Prototype Boundaries
+
+1. **In-Memory Store Mode:** If Supabase credentials are left empty in `backend/.env`, the system defaults to an in-memory repository. Any newly added records or status updates will reset if the backend server process is restarted.
+2. **Authentication:** The prototype does not include a multi-tenant user authentication system (RBAC). In accordance with project instructions, authentication has not been mocked or simulated.
+3. **Out of Scope Modules:** As specified in the design requirements, the system does not perform OCR invoice scanning, automatic banking payments, or patient diagnosis. Reorder recommendations are advisory tools for licensed pharmacists.

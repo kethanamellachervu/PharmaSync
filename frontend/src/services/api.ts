@@ -10,15 +10,34 @@ import {
   PurchaseItemInput,
   ShopSettings,
   DashboardStats,
+  DashboardAnalyticsData,
+  SalesAnalyticsData,
+  InventoryAnalyticsData,
+  PurchasesAnalyticsData,
+  SalesReportRow,
+  InventoryReportRow,
+  ExpiryReportRow,
+  PurchaseReportRow,
   InventoryAlertsData,
   FefoAllocationResult,
+  ForecastOverview,
+  MedicineForecastSummary,
+  MedicineForecastDetail,
+  ReorderRecommendation,
+  ForecastSettings,
+  DemandTrend,
+  ReorderUrgency,
+  ReviewStatus,
+  ExtractedBillData,
+  ConfirmBillInput,
+  ConfirmBillResult,
 } from '../types';
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000,
+  timeout: 30000, // 30 seconds default
   headers: {
     'Content-Type': 'application/json',
   },
@@ -26,6 +45,9 @@ const apiClient = axios.create({
 
 function handleApiError(err: unknown, defaultMsg: string): never {
   const error = err as AxiosError<{ message?: string }>;
+  if (error.code === 'ECONNABORTED' || (error.message && error.message.includes('timeout'))) {
+    throw new Error('Request timed out. The AI model or database took longer than expected to respond. Please retry.');
+  }
   const message = error.response?.data?.message || error.message || defaultMsg;
   throw new Error(message);
 }
@@ -317,6 +339,80 @@ export const apiService = {
     }
   },
 
+  // --- AI Bill Scanning & Processing ---
+  async getOcrStatus(): Promise<{
+    isConfigured: boolean;
+    geminiConfigured: boolean;
+    openaiConfigured: boolean;
+    supportedFormats?: string[];
+    maxFileSizeMb?: number;
+    recommendation?: string;
+  }> {
+    try {
+      const response = await apiClient.get<{
+        status: string;
+        data: {
+          isConfigured: boolean;
+          geminiConfigured: boolean;
+          openaiConfigured: boolean;
+          supportedFormats?: string[];
+          maxFileSizeMb?: number;
+          recommendation?: string;
+        };
+      }>('/purchases/ocr-status');
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to fetch OCR status.');
+    }
+  },
+
+  async scanBill(
+    fileOrPayload: File | { fileData: string; mimeType: string; fileName: string }
+  ): Promise<ExtractedBillData> {
+    try {
+      if (fileOrPayload instanceof File) {
+        const formData = new FormData();
+        formData.append('billFile', fileOrPayload);
+        const response = await apiClient.post<{ status: string; data: ExtractedBillData }>(
+          '/purchases/scan-bill',
+          formData,
+          {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            timeout: 90000, // 90s timeout for Gemini AI image/PDF OCR analysis
+          }
+        );
+        return response.data.data;
+      } else {
+        const response = await apiClient.post<{ status: string; data: ExtractedBillData }>(
+          '/purchases/scan-bill',
+          fileOrPayload,
+          {
+            timeout: 90000, // 90s timeout for Gemini AI image/PDF OCR analysis
+          }
+        );
+        return response.data.data;
+      }
+    } catch (err) {
+      return handleApiError(err, 'Failed to scan and extract purchase bill data.');
+    }
+  },
+
+  async confirmBill(payload: ConfirmBillInput): Promise<ConfirmBillResult> {
+    try {
+      const response = await apiClient.post<{ status: string; data: ConfirmBillResult }>(
+        '/purchases/confirm-bill',
+        payload,
+        {
+          timeout: 60000, // 60s timeout for multi-table Supabase transactional commit
+        }
+      );
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to confirm and record bill purchase.');
+    }
+  },
+
+
   // --- Sales ---
   async getSales(filter?: { search?: string; date?: string }): Promise<Sale[]> {
     try {
@@ -365,6 +461,216 @@ export const apiService = {
       return response.data.data;
     } catch (err) {
       return handleApiError(err, 'Failed to record sale.');
+    }
+  },
+
+  // --- Phase 4: Analytics ---
+  async getDashboardAnalytics(): Promise<DashboardAnalyticsData> {
+    try {
+      const response = await apiClient.get<{ status: string; data: DashboardAnalyticsData }>(
+        '/analytics/dashboard'
+      );
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to fetch dashboard analytics.');
+    }
+  },
+
+  async getSalesAnalytics(params?: {
+    startDate?: string;
+    endDate?: string;
+    groupBy?: 'day' | 'week' | 'month';
+  }): Promise<SalesAnalyticsData> {
+    try {
+      const response = await apiClient.get<{ status: string; data: SalesAnalyticsData }>(
+        '/analytics/sales',
+        { params }
+      );
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to fetch sales analytics.');
+    }
+  },
+
+  async getInventoryAnalytics(): Promise<InventoryAnalyticsData> {
+    try {
+      const response = await apiClient.get<{ status: string; data: InventoryAnalyticsData }>(
+        '/analytics/inventory'
+      );
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to fetch inventory analytics.');
+    }
+  },
+
+  async getPurchasesAnalytics(params?: {
+    startDate?: string;
+    endDate?: string;
+  }): Promise<PurchasesAnalyticsData> {
+    try {
+      const response = await apiClient.get<{ status: string; data: PurchasesAnalyticsData }>(
+        '/analytics/purchases',
+        { params }
+      );
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to fetch purchase analytics.');
+    }
+  },
+
+  // --- Phase 4: Reports ---
+  async getSalesReport(params?: { startDate?: string; endDate?: string }): Promise<SalesReportRow[]> {
+    try {
+      const response = await apiClient.get<{ status: string; data: SalesReportRow[] }>('/reports/sales', {
+        params,
+      });
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to generate sales report.');
+    }
+  },
+
+  async getInventoryReport(params?: {
+    category?: string;
+    stockStatus?: string;
+  }): Promise<InventoryReportRow[]> {
+    try {
+      const response = await apiClient.get<{ status: string; data: InventoryReportRow[] }>(
+        '/reports/inventory',
+        { params }
+      );
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to generate inventory report.');
+    }
+  },
+
+  async getExpiryReport(params?: { status?: string }): Promise<ExpiryReportRow[]> {
+    try {
+      const response = await apiClient.get<{ status: string; data: ExpiryReportRow[] }>(
+        '/reports/expiry',
+        { params }
+      );
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to generate expiry report.');
+    }
+  },
+
+  async getPurchaseReport(params?: {
+    supplierId?: string;
+    startDate?: string;
+    endDate?: string;
+  }): Promise<PurchaseReportRow[]> {
+    try {
+      const response = await apiClient.get<{ status: string; data: PurchaseReportRow[] }>(
+        '/reports/purchases',
+        { params }
+      );
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to generate purchase report.');
+    }
+  },
+
+  // --- Phase 5: Demand Forecasting ---
+  async getForecastOverview(period?: number): Promise<ForecastOverview> {
+    try {
+      const response = await apiClient.get<{ status: string; data: ForecastOverview }>(
+        '/forecast/overview',
+        { params: { period } }
+      );
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to fetch forecasting overview.');
+    }
+  },
+
+  async getMedicineForecasts(params?: {
+    search?: string;
+    trend?: DemandTrend | 'all';
+    urgency?: ReorderUrgency | 'all';
+    period?: number;
+  }): Promise<MedicineForecastSummary[]> {
+    try {
+      const response = await apiClient.get<{ status: string; total: number; data: MedicineForecastSummary[] }>(
+        '/forecast/medicines',
+        { params }
+      );
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to fetch medicine forecasts.');
+    }
+  },
+
+  async getMedicineForecastById(id: string, period?: number): Promise<MedicineForecastDetail> {
+    try {
+      const response = await apiClient.get<{ status: string; data: MedicineForecastDetail }>(
+        `/forecast/medicines/${id}`,
+        { params: { period } }
+      );
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, `Failed to fetch forecast details for medicine.`);
+    }
+  },
+
+  async getForecastSettings(): Promise<ForecastSettings> {
+    try {
+      const response = await apiClient.get<{ status: string; data: ForecastSettings }>('/forecast/settings');
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to fetch forecast settings.');
+    }
+  },
+
+  async updateForecastSettings(settings: Partial<ForecastSettings>): Promise<ForecastSettings> {
+    try {
+      const response = await apiClient.put<{ status: string; data: ForecastSettings }>(
+        '/forecast/settings',
+        settings
+      );
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to update forecast settings.');
+    }
+  },
+
+  // --- Phase 5: Smart Reordering ---
+  async getReorderRecommendations(params?: {
+    urgency?: ReorderUrgency | 'all';
+    category?: string;
+    stockStatus?: string;
+    reviewStatus?: ReviewStatus | 'all';
+    horizonDays?: number;
+  }): Promise<ReorderRecommendation[]> {
+    try {
+      const response = await apiClient.get<{ status: string; total: number; data: ReorderRecommendation[] }>(
+        '/reorder/recommendations',
+        { params }
+      );
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to fetch reorder recommendations.');
+    }
+  },
+
+  async reviewReorderRecommendation(
+    id: string,
+    data: {
+      status: ReviewStatus;
+      adjustedQuantity?: number;
+      notes?: string;
+    }
+  ): Promise<ReorderRecommendation> {
+    try {
+      const response = await apiClient.patch<{ status: string; data: ReorderRecommendation }>(
+        `/reorder/recommendations/${id}/review`,
+        data
+      );
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to update review status.');
     }
   },
 

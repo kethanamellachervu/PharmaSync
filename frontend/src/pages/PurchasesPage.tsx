@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   ShoppingBag,
   Plus,
@@ -12,9 +13,22 @@ import {
   Trash2,
   FileText,
   Boxes,
+  Sparkles,
+  MapPin,
 } from 'lucide-react';
 import { apiService } from '../services/api';
 import { Purchase, Supplier, Medicine, PurchaseItemInput } from '../types';
+import { BillScanModal } from '../components/bills/BillScanModal';
+
+interface PurchasesLocationState {
+  supplierId?: string;
+  reorderItem?: {
+    medicineId: string;
+    medicineName: string;
+    quantity: number;
+    purchasePrice: number;
+  };
+}
 
 interface NewPurchaseItemDraft extends PurchaseItemInput {
   medicineName: string;
@@ -34,6 +48,7 @@ export const PurchasesPage: React.FC = () => {
 
   // Modals
   const [isNewPurchaseModalOpen, setIsNewPurchaseModalOpen] = useState(false);
+  const [isBillScanModalOpen, setIsBillScanModalOpen] = useState(false);
   const [selectedPurchaseDetails, setSelectedPurchaseDetails] = useState<Purchase | null>(null);
 
   // New Purchase Form state
@@ -76,9 +91,30 @@ export const PurchasesPage: React.FC = () => {
     }
   }, [filterSupplierId, filterDate]);
 
+  const location = useLocation();
+  const locationState = location.state as PurchasesLocationState | null;
+
+  // If navigated from Suppliers or Reorder page with a supplierId or item, prefill and open modal
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (locationState?.supplierId && suppliers.length > 0) {
+      setSelectedSupplierId(locationState.supplierId);
+      setIsNewPurchaseModalOpen(true);
+      if (locationState.reorderItem) {
+        setItemMedicineId(locationState.reorderItem.medicineId);
+        setItemQuantity(locationState.reorderItem.quantity || 10);
+        setItemPurchasePrice(locationState.reorderItem.purchasePrice || 0);
+        setItemBatchNumber(`PO-${Date.now().toString().slice(-4)}`);
+        const exp = new Date();
+        exp.setMonth(exp.getMonth() + 18);
+        setItemExpiryDate(exp.toISOString().split('T')[0]);
+      }
+    }
+  }, [locationState, suppliers]);
+
+  // Selected supplier object
+  const activeSupplier = useMemo(() => {
+    return suppliers.find((s) => s.id === selectedSupplierId) || null;
+  }, [suppliers, selectedSupplierId]);
 
   // Selected medicine for line item
   const selectedMedForLine = useMemo(() => {
@@ -281,6 +317,14 @@ export const PurchasesPage: React.FC = () => {
           </button>
 
           <button
+            onClick={() => setIsBillScanModalOpen(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-md shadow-emerald-500/20 transition-all cursor-pointer"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>Upload Bill (AI Scan)</span>
+          </button>
+
+          <button
             onClick={handleOpenNewPurchase}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#087F5B] hover:bg-[#076b4d] text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
           >
@@ -455,10 +499,35 @@ export const PurchasesPage: React.FC = () => {
                 <option value="">-- Choose registered supplier --</option>
                 {suppliers.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.name} ({s.phone})
+                    {s.name} {s.city ? `• ${s.city}` : ''} ({s.phone})
                   </option>
                 ))}
               </select>
+
+              {activeSupplier && (
+                <div className="mt-2 p-3 rounded-xl bg-emerald-50/70 border border-emerald-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-gray-900">{activeSupplier.name}</span>
+                      <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <MapPin className="w-2.5 h-2.5" />
+                        {activeSupplier.city || 'Telangana'}, {activeSupplier.district || activeSupplier.state || 'India'}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-gray-600 flex flex-wrap items-center gap-3">
+                      <span>Delivery: <strong>{activeSupplier.deliveryTime || '24-48 hrs'}</strong></span>
+                      <span>Payment: <strong>{activeSupplier.paymentTerms || 'Net 30'}</strong></span>
+                      <span>Min Order: <strong>₹{(activeSupplier.minOrderAmount || 0).toLocaleString('en-IN')}</strong></span>
+                    </div>
+                  </div>
+
+                  {draftTotalAmount > 0 && activeSupplier.minOrderAmount && draftTotalAmount < activeSupplier.minOrderAmount && (
+                    <div className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg">
+                      Draft (₹{draftTotalAmount.toFixed(0)}) &lt; Min (₹{activeSupplier.minOrderAmount})
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Line Item Entry Box */}
@@ -776,6 +845,19 @@ export const PurchasesPage: React.FC = () => {
           </div>
         </div>
       )}
+      {/* AI Purchase Bill Scan Modal */}
+      <BillScanModal
+        isOpen={isBillScanModalOpen}
+        onClose={() => setIsBillScanModalOpen(false)}
+        onSuccess={(res) => {
+          loadData();
+          setSuccessMessage(
+            `Purchase Order #${res.purchase.purchaseNumber} recorded successfully! Added ${res.totalQuantity} units across ${res.batchesCreated.length} batch(es).`
+          );
+        }}
+        suppliers={suppliers}
+        medicines={medicines}
+      />
     </div>
   );
 };

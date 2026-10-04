@@ -1,9 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import { pharmacyStore } from '../services/pharmacyStore.js';
 
-export function getSettings(req: Request, res: Response, next: NextFunction): void {
+export async function getSettings(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const settings = pharmacyStore.getSettings();
+    const settings = await pharmacyStore.getSettings();
     res.status(200).json({
       status: 'success',
       data: settings,
@@ -13,11 +13,11 @@ export function getSettings(req: Request, res: Response, next: NextFunction): vo
   }
 }
 
-export function updateSettings(req: Request, res: Response, next: NextFunction): void {
+export async function updateSettings(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { shopName, pharmacistName, nearExpiryDays } = req.body;
 
-    const updated = pharmacyStore.updateSettings({
+    const updated = await pharmacyStore.updateSettings({
       shopName,
       pharmacistName,
       nearExpiryDays: nearExpiryDays !== undefined ? Number(nearExpiryDays) : undefined,

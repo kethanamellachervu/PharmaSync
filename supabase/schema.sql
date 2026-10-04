@@ -170,3 +170,59 @@ DROP TRIGGER IF EXISTS trigger_suppliers_updated_at ON public.suppliers;
 CREATE TRIGGER trigger_suppliers_updated_at
 BEFORE UPDATE ON public.suppliers
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ==============================================================================
+-- PHASE 4 & 5: SETTINGS, AI DEMAND FORECASTING & REORDERING TABLES
+-- ==============================================================================
+
+-- 12. SHOP SETTINGS TABLE
+CREATE TABLE IF NOT EXISTS public.shop_settings (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    shop_name VARCHAR(255) NOT NULL DEFAULT 'Sri Sai Medical & General Store',
+    pharmacist_name VARCHAR(255) NOT NULL DEFAULT 'Store Pharmacist',
+    near_expiry_days INTEGER NOT NULL DEFAULT 30 CHECK (near_expiry_days > 0),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS trigger_shop_settings_updated_at ON public.shop_settings;
+CREATE TRIGGER trigger_shop_settings_updated_at
+BEFORE UPDATE ON public.shop_settings
+FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- 13. FORECAST SETTINGS TABLE
+CREATE TABLE IF NOT EXISTS public.forecast_settings (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    default_horizon_days INTEGER NOT NULL DEFAULT 30 CHECK (default_horizon_days IN (7, 30, 90)),
+    safety_buffer_days INTEGER NOT NULL DEFAULT 5 CHECK (safety_buffer_days >= 0),
+    min_data_days_required INTEGER NOT NULL DEFAULT 7 CHECK (min_data_days_required >= 1),
+    method VARCHAR(50) NOT NULL DEFAULT 'weighted_moving_average' CHECK (method IN ('weighted_moving_average', 'simple_moving_average', 'trend_adjusted')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 13. REORDER RECOMMENDATION REVIEWS TABLE
+CREATE TABLE IF NOT EXISTS public.reorder_recommendation_reviews (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    medicine_id UUID NOT NULL REFERENCES public.medicines(id) ON DELETE CASCADE,
+    review_status VARCHAR(50) NOT NULL DEFAULT 'pending' CHECK (review_status IN ('pending', 'reviewed', 'dismissed')),
+    suggested_quantity INTEGER NOT NULL CHECK (suggested_quantity >= 0),
+    adjusted_quantity INTEGER CHECK (adjusted_quantity IS NULL OR adjusted_quantity >= 0),
+    reviewer_notes TEXT,
+    reviewed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_medicine_reorder_review UNIQUE (medicine_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reorder_reviews_status ON public.reorder_recommendation_reviews(review_status);
+CREATE INDEX IF NOT EXISTS idx_reorder_reviews_medicine_id ON public.reorder_recommendation_reviews(medicine_id);
+
+DROP TRIGGER IF EXISTS trigger_forecast_settings_updated_at ON public.forecast_settings;
+CREATE TRIGGER trigger_forecast_settings_updated_at
+BEFORE UPDATE ON public.forecast_settings
+FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trigger_reorder_reviews_updated_at ON public.reorder_recommendation_reviews;
+CREATE TRIGGER trigger_reorder_reviews_updated_at
+BEFORE UPDATE ON public.reorder_recommendation_reviews
+FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

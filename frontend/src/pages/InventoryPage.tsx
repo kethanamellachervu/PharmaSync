@@ -21,8 +21,9 @@ import StockMovementsModal from '../components/inventory/StockMovementsModal';
 import DeleteConfirmDialog from '../components/inventory/DeleteConfirmDialog';
 import FefoPreviewModal from '../components/inventory/FefoPreviewModal';
 import InventoryAlertsBanner from '../components/inventory/InventoryAlertsBanner';
+import { BillScanModal } from '../components/bills/BillScanModal';
 import { apiService } from '../services/api';
-import { Medicine, InventoryAlertsData } from '../types';
+import { Medicine, InventoryAlertsData, Supplier } from '../types';
 
 type SortField = 'name' | 'quantity' | 'expiry';
 type SortOrder = 'asc' | 'desc';
@@ -62,16 +63,22 @@ export const InventoryPage: React.FC = () => {
   const [deletingMedicine, setDeletingMedicine] = useState<Medicine | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // AI Bill Scan Modal
+  const [isBillScanModalOpen, setIsBillScanModalOpen] = useState(false);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const [inventoryData, alertsData] = await Promise.all([
+      const [inventoryData, alertsData, suppliersData] = await Promise.all([
         apiService.getInventory(),
         apiService.getInventoryAlerts(),
+        apiService.getSuppliers().catch(() => [] as Supplier[]),
       ]);
       setMedicines(inventoryData);
       setAlerts(alertsData);
+      setSuppliers(suppliersData);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to fetch inventory.';
       setError(msg);
@@ -206,6 +213,14 @@ export const InventoryPage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2.5 self-start sm:self-auto">
+          <button
+            onClick={() => setIsBillScanModalOpen(true)}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-semibold shadow-md shadow-emerald-500/20 transition-all cursor-pointer"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>Upload Bill (AI Scan)</span>
+          </button>
+
           <button
             onClick={() => setIsAddModalOpen(true)}
             className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[#087F5B] hover:bg-[#066347] text-white text-xs font-semibold shadow-xs transition-colors"
@@ -634,6 +649,15 @@ export const InventoryPage: React.FC = () => {
         onClose={() => setDeletingMedicine(null)}
         onConfirm={handleDeleteConfirm}
         isDeleting={isDeleting}
+      />
+
+      {/* AI Purchase Bill Scan Modal */}
+      <BillScanModal
+        isOpen={isBillScanModalOpen}
+        onClose={() => setIsBillScanModalOpen(false)}
+        onSuccess={() => fetchData()}
+        suppliers={suppliers}
+        medicines={medicines}
       />
     </div>
   );

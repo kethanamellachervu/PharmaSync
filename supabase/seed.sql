@@ -163,4 +163,12 @@ BEGIN
     INSERT INTO public.sale_batch_allocations (sale_item_id, batch_number, quantity, expiry_date)
     VALUES (item_id, 'PAN-410', 1, CURRENT_DATE + INTERVAL '14 months');
 
+    -- 5. FORECAST SETTINGS & REORDER REVIEWS
+    INSERT INTO public.forecast_settings (default_horizon_days, safety_buffer_days, min_data_days_required, method)
+    VALUES (30, 5, 7, 'weighted_moving_average');
+
+    INSERT INTO public.reorder_recommendation_reviews (medicine_id, review_status, suggested_quantity, reviewer_notes)
+    VALUES (med_cetz, 'pending', 45, 'High allergy season demand expected, immediate stockout risk.');
+
 END $$;
+

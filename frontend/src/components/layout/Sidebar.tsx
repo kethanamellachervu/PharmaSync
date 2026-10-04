@@ -6,6 +6,9 @@ import {
   ShoppingCart,
   Truck,
   ShoppingBag,
+  BarChart3,
+  TrendingUp,
+  RotateCcw,
   Settings,
   X,
   PlusCircle,
@@ -26,6 +29,9 @@ const navItems: NavItem[] = [
   { title: 'Sales', href: '/sales', icon: ShoppingCart },
   { title: 'Suppliers', href: '/suppliers', icon: Truck },
   { title: 'Purchases', href: '/purchases', icon: ShoppingBag },
+  { title: 'Reports', href: '/reports', icon: BarChart3 },
+  { title: 'Forecasting', href: '/forecasting', icon: TrendingUp },
+  { title: 'Smart Reorder', href: '/reorder', icon: RotateCcw },
   { title: 'Settings', href: '/settings', icon: Settings },
 ];
 
