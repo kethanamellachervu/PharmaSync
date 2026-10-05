@@ -30,8 +30,8 @@ const navItems: NavItem[] = [
   { title: 'Suppliers', href: '/suppliers', icon: Truck },
   { title: 'Purchases', href: '/purchases', icon: ShoppingBag },
   { title: 'Reports', href: '/reports', icon: BarChart3 },
-  { title: 'Forecasting', href: '/forecasting', icon: TrendingUp },
-  { title: 'Smart Reorder', href: '/reorder', icon: RotateCcw },
+  { title: 'Stock Planning', href: '/forecasting', icon: TrendingUp },
+  { title: 'Stock Alerts', href: '/reorder', icon: RotateCcw },
   { title: 'Settings', href: '/settings', icon: Settings },
 ];
 

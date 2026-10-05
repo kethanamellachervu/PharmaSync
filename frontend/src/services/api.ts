@@ -640,7 +640,7 @@ export const apiService = {
   },
 
   // --- Scikit-learn GradientBoostingRegressor ML Demand Forecasting ---
-  async getMlPredictions(horizon: 7 | 30 | 90 = 30): Promise<MlForecastingFullResult> {
+  async getMlPredictions(horizon: 7 | 30 = 30): Promise<MlForecastingFullResult> {
     try {
       const response = await apiClient.get<{ status: string; data: MlForecastingFullResult }>(
         '/forecast/ml-predictions',

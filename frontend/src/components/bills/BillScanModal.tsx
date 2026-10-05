@@ -13,7 +13,6 @@ import {
   RefreshCw,
   PackageCheck,
   Check,
-  Cpu,
   Layers,
 } from 'lucide-react';
 import { apiService } from '../../services/api';
@@ -59,31 +58,10 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
   const [invoiceDate, setInvoiceDate] = useState('');
   const [billNotes, setBillNotes] = useState('');
   const [items, setItems] = useState<ExtractedBillItem[]>([]);
-  const [aiProviderUsed, setAiProviderUsed] = useState('');
   const [serverWarnings, setServerWarnings] = useState<string[]>([]);
-
-  // OCR Service status
-  const [ocrStatus, setOcrStatus] = useState<{
-    isConfigured: boolean;
-    geminiConfigured: boolean;
-    openaiConfigured: boolean;
-    recommendation?: string;
-  } | null>(null);
-
-  // Submission & Result state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [saveResult, setSaveResult] = useState<ConfirmBillResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  // Load OCR status when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      apiService
-        .getOcrStatus()
-        .then(setOcrStatus)
-        .catch(() => setOcrStatus({ isConfigured: false, geminiConfigured: false, openaiConfigured: false }));
-    }
-  }, [isOpen]);
 
   // Clean up object URL on unmount
   useEffect(() => {
@@ -212,7 +190,6 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
     setInvoiceNumber(data.invoiceNumber || `INV-${Date.now().toString().slice(-6)}`);
     setInvoiceDate(data.invoiceDate || new Date().toISOString().split('T')[0]);
     setItems(data.items || []);
-    setAiProviderUsed(data.aiProviderUsed || 'AI Vision');
     setServerWarnings(data.warnings || []);
   };
 
@@ -345,13 +322,10 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
             </div>
             <div>
               <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                AI Purchase Bill Scanner
-                <span className="text-xs px-2.5 py-0.5 font-semibold rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
-                  Supabase Integrated
-                </span>
+                Add Purchase Bill
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Scan pharmaceutical invoices to automatically verify batches and update usable inventory
+                Upload a photo or PDF of your supplier bill.
               </p>
             </div>
           </div>
@@ -442,32 +416,13 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
         {/* STAGE 1: UPLOAD */}
         {stage === 'UPLOAD' && (
           <div className="flex-1 overflow-y-auto p-6 md:p-8 flex flex-col items-center">
-            {/* OCR Service status badge */}
             <div className="w-full max-w-2xl mb-5 flex items-center justify-between px-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 text-xs">
               <div className="flex items-center gap-2">
-                <Cpu className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <FileText className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                 <span className="font-semibold text-slate-700 dark:text-slate-200">
-                  AI OCR Vision Engine:
-                </span>
-                <span
-                  className={`px-2 py-0.5 rounded-md font-medium text-[11px] ${
-                    ocrStatus?.isConfigured
-                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                      : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                  }`}
-                >
-                  {ocrStatus?.geminiConfigured
-                    ? 'Google Gemini Vision Active'
-                    : ocrStatus?.openaiConfigured
-                    ? 'OpenAI Vision Active'
-                    : 'Document Text Parser Ready'}
+                  Upload supplier invoice photo or PDF document
                 </span>
               </div>
-              {!ocrStatus?.isConfigured && (
-                <span className="text-slate-500 dark:text-slate-400 hidden sm:inline">
-                  Add GEMINI_API_KEY in backend/.env for live photos
-                </span>
-              )}
             </div>
 
             {/* Dropzone */}
@@ -649,11 +604,8 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
         {stage === 'REVIEW' && (
           <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-              <span className="text-xs text-slate-500">
-                Extraction Engine: <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">{aiProviderUsed || 'Document AI'}</span>
-              </span>
-              <span className="text-xs text-slate-400">
-                Verify and edit extracted values before confirming
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                Please check the details before saving.
               </span>
             </div>
 

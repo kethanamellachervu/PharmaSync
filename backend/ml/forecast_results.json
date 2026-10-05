@@ -19,9 +19,9 @@
     "total_medicines": 30
   },
   "metrics": {
-    "mae": 1.467,
-    "rmse": 2.359,
-    "mape_percent": 11.52,
+    "mae": 1.468,
+    "rmse": 2.362,
+    "mape_percent": 11.53,
     "baseline_moving_avg": {
       "name": "7-Day Simple Moving Average Baseline",
       "mae": 1.498,
@@ -29,8 +29,8 @@
       "mape_percent": 11.82
     },
     "improvement_over_baseline": {
-      "mae_reduction_percent": 2.11,
-      "rmse_reduction_percent": 0.5
+      "mae_reduction_percent": 2.0,
+      "rmse_reduction_percent": 0.36
     }
   },
   "medicines": {
@@ -6177,7 +6177,7 @@
       "reorder_level": 80,
       "safety_stock": 15,
       "daily_average_sales": 13.7,
-      "forecast_7d": 90,
+      "forecast_7d": 89,
       "forecast_30d": 412,
       "forecast_90d": 1174,
       "recent_history": [
@@ -6346,7 +6346,7 @@
         {
           "day": 3,
           "date": "2026-10-03",
-          "predicted_units": 13.7
+          "predicted_units": 13.6
         },
         {
           "day": 4,
@@ -6361,7 +6361,7 @@
         {
           "day": 6,
           "date": "2026-10-06",
-          "predicted_units": 14.9
+          "predicted_units": 14.8
         },
         {
           "day": 7,
@@ -6498,7 +6498,7 @@
         {
           "day": 3,
           "date": "2026-10-03",
-          "predicted_units": 13.7
+          "predicted_units": 13.6
         },
         {
           "day": 4,
@@ -6513,7 +6513,7 @@
         {
           "day": 6,
           "date": "2026-10-06",
-          "predicted_units": 14.9
+          "predicted_units": 14.8
         },
         {
           "day": 7,
@@ -6848,7 +6848,7 @@
         {
           "day": 73,
           "date": "2026-12-12",
-          "predicted_units": 13.0
+          "predicted_units": 12.9
         },
         {
           "day": 74,
@@ -7178,7 +7178,7 @@
         {
           "day": 16,
           "date": "2026-10-16",
-          "predicted_units": 12.1
+          "predicted_units": 11.8
         },
         {
           "day": 17,
@@ -7330,7 +7330,7 @@
         {
           "day": 16,
           "date": "2026-10-16",
-          "predicted_units": 12.1
+          "predicted_units": 11.8
         },
         {
           "day": 17,
@@ -7470,17 +7470,17 @@
         {
           "day": 44,
           "date": "2026-11-13",
-          "predicted_units": 12.9
+          "predicted_units": 14.3
         },
         {
           "day": 45,
           "date": "2026-11-14",
-          "predicted_units": 14.3
+          "predicted_units": 14.6
         },
         {
           "day": 46,
           "date": "2026-11-15",
-          "predicted_units": 14.4
+          "predicted_units": 13.4
         },
         {
           "day": 47,
@@ -7505,22 +7505,22 @@
         {
           "day": 51,
           "date": "2026-11-20",
-          "predicted_units": 14.3
+          "predicted_units": 12.9
         },
         {
           "day": 52,
           "date": "2026-11-21",
-          "predicted_units": 14.6
+          "predicted_units": 14.5
         },
         {
           "day": 53,
           "date": "2026-11-22",
-          "predicted_units": 13.8
+          "predicted_units": 14.9
         },
         {
           "day": 54,
           "date": "2026-11-23",
-          "predicted_units": 13.3
+          "predicted_units": 13.4
         },
         {
           "day": 55,
@@ -7540,17 +7540,17 @@
         {
           "day": 58,
           "date": "2026-11-27",
-          "predicted_units": 14.1
+          "predicted_units": 14.3
         },
         {
           "day": 59,
           "date": "2026-11-28",
-          "predicted_units": 14.5
+          "predicted_units": 13.7
         },
         {
           "day": 60,
           "date": "2026-11-29",
-          "predicted_units": 13.7
+          "predicted_units": 13.6
         },
         {
           "day": 61,
@@ -7565,22 +7565,22 @@
         {
           "day": 63,
           "date": "2026-12-02",
-          "predicted_units": 14.2
+          "predicted_units": 13.9
         },
         {
           "day": 64,
           "date": "2026-12-03",
-          "predicted_units": 14.2
+          "predicted_units": 13.9
         },
         {
           "day": 65,
           "date": "2026-12-04",
-          "predicted_units": 14.1
+          "predicted_units": 13.7
         },
         {
           "day": 66,
           "date": "2026-12-05",
-          "predicted_units": 13.7
+          "predicted_units": 14.1
         },
         {
           "day": 67,
@@ -7595,32 +7595,32 @@
         {
           "day": 69,
           "date": "2026-12-08",
-          "predicted_units": 13.3
+          "predicted_units": 14.2
         },
         {
           "day": 70,
           "date": "2026-12-09",
-          "predicted_units": 13.8
+          "predicted_units": 14.4
         },
         {
           "day": 71,
           "date": "2026-12-10",
-          "predicted_units": 14.2
+          "predicted_units": 14.4
         },
         {
           "day": 72,
           "date": "2026-12-11",
-          "predicted_units": 14.1
+          "predicted_units": 14.3
         },
         {
           "day": 73,
           "date": "2026-12-12",
-          "predicted_units": 14.3
+          "predicted_units": 14.6
         },
         {
           "day": 74,
           "date": "2026-12-13",
-          "predicted_units": 14.2
+          "predicted_units": 13.7
         },
         {
           "day": 75,
@@ -7635,12 +7635,12 @@
         {
           "day": 77,
           "date": "2026-12-16",
-          "predicted_units": 14.4
+          "predicted_units": 13.2
         },
         {
           "day": 78,
           "date": "2026-12-17",
-          "predicted_units": 13.1
+          "predicted_units": 14.2
         },
         {
           "day": 79,
@@ -7650,32 +7650,32 @@
         {
           "day": 80,
           "date": "2026-12-19",
-          "predicted_units": 14.6
+          "predicted_units": 14.5
         },
         {
           "day": 81,
           "date": "2026-12-20",
-          "predicted_units": 13.8
+          "predicted_units": 13.7
         },
         {
           "day": 82,
           "date": "2026-12-21",
-          "predicted_units": 14.8
+          "predicted_units": 13.2
         },
         {
           "day": 83,
           "date": "2026-12-22",
-          "predicted_units": 14.6
+          "predicted_units": 14.1
         },
         {
           "day": 84,
           "date": "2026-12-23",
-          "predicted_units": 13.4
+          "predicted_units": 13.9
         },
         {
           "day": 85,
           "date": "2026-12-24",
-          "predicted_units": 13.1
+          "predicted_units": 14.2
         },
         {
           "day": 86,
@@ -7685,12 +7685,12 @@
         {
           "day": 87,
           "date": "2026-12-26",
-          "predicted_units": 14.5
+          "predicted_units": 14.6
         },
         {
           "day": 88,
           "date": "2026-12-27",
-          "predicted_units": 14.8
+          "predicted_units": 15.0
         },
         {
           "day": 89,
@@ -7700,7 +7700,7 @@
         {
           "day": 90,
           "date": "2026-12-29",
-          "predicted_units": 14.1
+          "predicted_units": 14.2
         }
       ]
     },

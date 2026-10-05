@@ -6,7 +6,6 @@ import {
   Database,
   Info,
   RefreshCw,
-  Sparkles,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -27,13 +26,13 @@ export const DemandForecastingSection: React.FC = () => {
   const [data, setData] = useState<MlForecastingFullResult | null>(null);
   const [datasetInfo, setDatasetInfo] = useState<MlDatasetInfo | null>(null);
   const [selectedMedId, setSelectedMedId] = useState<string>('MED001');
-  const [selectedHorizon, setSelectedHorizon] = useState<7 | 30 | 90>(30);
+  const [selectedHorizon, setSelectedHorizon] = useState<7 | 30>(30);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isImporting, setIsImporting] = useState<boolean>(false);
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const loadData = async (horizon: 7 | 30 | 90 = selectedHorizon) => {
+  const loadData = async (horizon: 7 | 30 = selectedHorizon) => {
     setIsLoading(true);
     setError(null);
     try {
@@ -83,8 +82,6 @@ export const DemandForecastingSection: React.FC = () => {
   const forecastHorizonDemand =
     selectedHorizon === 7
       ? selectedPrediction?.forecast7d ?? 0
-      : selectedHorizon === 90
-      ? selectedPrediction?.forecast90d ?? 0
       : selectedPrediction?.forecast30d ?? 0;
 
   const isReorderNow = forecastHorizonDemand > currentStock;
@@ -206,7 +203,7 @@ export const DemandForecastingSection: React.FC = () => {
 
         <div className="sm:col-span-4 flex items-center justify-end gap-1">
           <span className="text-xs text-gray-500 font-medium mr-1.5">Horizon:</span>
-          {([7, 30, 90] as const).map((h) => (
+          {([7, 30] as const).map((h) => (
             <button
               key={h}
               onClick={() => setSelectedHorizon(h)}
@@ -272,21 +269,7 @@ export const DemandForecastingSection: React.FC = () => {
           </span>
         </div>
 
-        {/* 90-Day Forecast */}
-        <div className={`p-4 rounded-xl border ${selectedHorizon === 90 ? 'bg-emerald-50/60 border-emerald-300' : 'bg-white border-gray-200'}`}>
-          <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider block">
-            90-Day Forecast
-          </span>
-          <div className="flex items-baseline gap-1 mt-1">
-            <span className="text-2xl font-bold font-mono text-emerald-700">
-              {isLoading ? '...' : selectedPrediction?.forecast90d ?? 0}
-            </span>
-            <span className="text-xs text-emerald-600 font-medium">units</span>
-          </div>
-          <span className="text-[11px] text-gray-500 block mt-1">
-            Quarterly planning horizon
-          </span>
-        </div>
+
 
         {/* Reorder Recommendation Card */}
         <div className={`p-4 rounded-xl border ${
@@ -397,40 +380,7 @@ export const DemandForecastingSection: React.FC = () => {
         </div>
       </div>
 
-      {/* 5. Verified Scikit-learn Model Evaluation Card */}
-      {data?.metrics && (
-        <div className="p-4 rounded-xl bg-slate-900 text-white shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-emerald-400" />
-              <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                Model Evaluation (15% Chronological Test Set)
-              </h4>
-            </div>
-            <p className="text-xs text-slate-300 max-w-xl">
-              Trained on 70% chronological data, validated on 15%, tested on 15% holdout. Compared against moving average baseline.
-            </p>
-          </div>
 
-          <div className="flex items-center gap-4 text-xs font-mono shrink-0">
-            <div className="text-right">
-              <span className="text-[10px] text-slate-400 block font-sans">MAE</span>
-              <span className="font-bold text-white text-sm">{data.metrics.mae} units</span>
-              <span className="text-[10px] text-emerald-400 block">vs {data.metrics.baseline_moving_avg.mae} SMA</span>
-            </div>
-            <div className="text-right">
-              <span className="text-[10px] text-slate-400 block font-sans">RMSE</span>
-              <span className="font-bold text-white text-sm">{data.metrics.rmse} units</span>
-              <span className="text-[10px] text-emerald-400 block">vs {data.metrics.baseline_moving_avg.rmse} SMA</span>
-            </div>
-            <div className="text-right">
-              <span className="text-[10px] text-slate-400 block font-sans">MAPE</span>
-              <span className="font-bold text-emerald-300 text-sm">{data.metrics.mape_percent}%</span>
-              <span className="text-[10px] text-emerald-400 block">vs {data.metrics.baseline_moving_avg.mape_percent}% SMA</span>
-            </div>
-          </div>
-        </div>
-      )}
     </section>
   );
 };
