@@ -412,36 +412,126 @@ export async function getDatabaseStatus(req: Request, res: Response, next: NextF
 // 13. Dashboard overview
 export async function getDashboardOverview(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const enriched = await pharmacyStore.getAllMedicines();
-    const alerts = await pharmacyStore.getInventoryAlerts();
-    const settings = await pharmacyStore.getSettings();
-    const suppliers = await pharmacyStore.getAllSuppliers();
-    const purchases = await pharmacyStore.getAllPurchases();
+    const [enriched, settings, suppliers, purchases, allSales] = await Promise.all([
+      pharmacyStore.getAllMedicines(),
+      pharmacyStore.getSettings(),
+      pharmacyStore.getAllSuppliers(),
+      pharmacyStore.getAllPurchases(),
+      pharmacyStore.getAllSales(),
+    ]);
 
     const totalMedicines = enriched.length;
     const availableStock = enriched.reduce((sum, m) => sum + m.usableStock, 0);
-    const todaySalesAmount = await pharmacyStore.getTodaySalesAmount();
-    const todayPurchaseAmount = await pharmacyStore.getTodayPurchaseAmount();
-    const monthSalesAmount = await pharmacyStore.getMonthSalesAmount();
-    const salesTrend7Days = await pharmacyStore.getRecentSalesTrend(7);
-    const categoryDistribution = await pharmacyStore.getCategoryDistribution();
-    const recentSales = (await pharmacyStore.getAllSales()).slice(0, 5);
 
+    // Compute alerts directly from preloaded enriched medicines in memory
+    const nearExpiryDays = settings.nearExpiryDays || 30;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const nearExpiryThreshold = new Date(today);
+    nearExpiryThreshold.setDate(nearExpiryThreshold.getDate() + nearExpiryDays);
+
+    let lowStockCount = 0;
+    let outOfStockCount = 0;
+    let nearExpiryBatchCount = 0;
+    let expiredBatchCount = 0;
+    const lowStockMedicines: any[] = [];
+    const nearExpiryMedicines: any[] = [];
+    const expiredMedicines: any[] = [];
+
+    const categoryMap = new Map<string, number>();
+
+    for (const m of enriched) {
+      if (m.usableStock === 0) outOfStockCount++;
+      else if (m.usableStock <= m.minStockLevel) {
+        lowStockCount++;
+        lowStockMedicines.push({
+          id: m.id,
+          name: m.name,
+          category: m.category,
+          totalStock: m.usableStock,
+          minStock: m.minStockLevel,
+          unit: m.unit,
+        });
+      }
+
+      const catCount = categoryMap.get(m.category) || 0;
+      categoryMap.set(m.category, catCount + 1);
+
+      for (const b of m.batches) {
+        const exp = new Date(b.expiryDate);
+        exp.setHours(0, 0, 0, 0);
+        if (exp < today) {
+          expiredBatchCount++;
+          expiredMedicines.push({ ...b, medicineName: m.name });
+        } else if (exp <= nearExpiryThreshold) {
+          nearExpiryBatchCount++;
+          nearExpiryMedicines.push({ ...b, medicineName: m.name });
+        }
+      }
+    }
+
+    const categoryDistribution = Array.from(categoryMap.entries()).map(([category, count]) => ({
+      category,
+      count,
+      percentage: totalMedicines > 0 ? Math.round((count / totalMedicines) * 100) : 0,
+    }));
+
+    // In-memory sales computations
+    const todayStr = today.toISOString().split('T')[0];
+    const currentMonthStr = todayStr.substring(0, 7);
+
+    let todaySalesAmount = 0;
+    let monthSalesAmount = 0;
+    for (const s of allSales) {
+      const sDate = s.createdAt ? s.createdAt.split('T')[0] : '';
+      if (sDate === todayStr) todaySalesAmount += Number(s.totalAmount || 0);
+      if (sDate.startsWith(currentMonthStr)) monthSalesAmount += Number(s.totalAmount || 0);
+    }
+    todaySalesAmount = Math.round(todaySalesAmount * 100) / 100;
+    monthSalesAmount = Math.round(monthSalesAmount * 100) / 100;
+
+    // In-memory purchases computations
+    let todayPurchaseAmount = 0;
+    let totalPurchaseAmount = 0;
+    let pendingPurchaseOrders = 0;
+    for (const p of purchases) {
+      const pDate = p.createdAt ? p.createdAt.split('T')[0] : '';
+      const amt = Number(p.totalAmount || 0);
+      totalPurchaseAmount += amt;
+      if (pDate === todayStr) todayPurchaseAmount += amt;
+      if (p.status === 'pending') pendingPurchaseOrders++;
+    }
+    todayPurchaseAmount = Math.round(todayPurchaseAmount * 100) / 100;
+    totalPurchaseAmount = Math.round(totalPurchaseAmount * 100) / 100;
+
+    // 7 days sales trend
+    const salesTrend7Days: { date: string; amount: number; orderCount: number }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const dayKey = d.toISOString().split('T')[0];
+      const daySales = allSales.filter((s) => s.createdAt && s.createdAt.startsWith(dayKey));
+      salesTrend7Days.push({
+        date: dayKey,
+        amount: Math.round(daySales.reduce((sum, s) => sum + Number(s.totalAmount || 0), 0) * 100) / 100,
+        orderCount: daySales.length,
+      });
+    }
+
+    const recentSales = allSales.slice(0, 5);
     const totalSuppliers = suppliers.length;
     const activeSuppliers = suppliers.filter((s) => s.status !== 'Inactive').length;
-    const pendingPurchaseOrders = purchases.filter((p) => p.status === 'pending').length;
     const totalPurchases = purchases.length;
-    const totalPurchaseAmount = purchases.reduce((sum, p) => sum + (p.totalAmount || 0), 0);
 
     res.status(200).json({
       status: 'success',
       data: {
         totalMedicines,
         availableStock,
-        lowStockCount: alerts.summary.lowStockCount,
-        outOfStockCount: alerts.summary.outOfStockCount,
-        nearExpiryBatchCount: alerts.summary.nearExpiryBatchCount,
-        expiredBatchCount: alerts.summary.expiredBatchCount,
+        lowStockCount,
+        outOfStockCount,
+        nearExpiryBatchCount,
+        expiredBatchCount,
         todaySalesAmount,
         todayPurchaseAmount,
         monthSalesAmount,
@@ -452,16 +542,9 @@ export async function getDashboardOverview(req: Request, res: Response, next: Ne
         pendingPurchaseOrders,
         totalPurchases,
         totalPurchaseAmount,
-        lowStockMedicines: alerts.lowStockMedicines.map((m) => ({
-          id: m.id,
-          name: m.name,
-          category: m.category,
-          totalStock: m.usableStock,
-          minStock: m.minStockLevel,
-          unit: m.unit,
-        })),
-        nearExpiryMedicines: alerts.nearExpiryBatches,
-        expiredMedicines: alerts.expiredBatches,
+        lowStockMedicines,
+        nearExpiryMedicines,
+        expiredMedicines,
         recentSales,
         settings,
       },

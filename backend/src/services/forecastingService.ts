@@ -129,10 +129,18 @@ class ForecastingService {
 
   // Reorder reviews store (persisted in-memory when not using PostgreSQL)
   private inMemoryReviews: Map<string, ReviewRecord> = new Map();
+  private cachedSettings: ForecastSettings | null = null;
+  private cachedSettingsTime = 0;
 
   public async getSettings(): Promise<ForecastSettings> {
+    if (this.cachedSettings && Date.now() - this.cachedSettingsTime < 30000) {
+      return { ...this.cachedSettings };
+    }
     if (await pharmacyStore.isUsingSupabase()) {
-      return supabaseService.getForecastSettings();
+      const s = await supabaseService.getForecastSettings();
+      this.cachedSettings = s;
+      this.cachedSettingsTime = Date.now();
+      return { ...s };
     }
     return { ...this.inMemorySettings };
   }
@@ -169,7 +177,10 @@ class ForecastingService {
     }
 
     if (await pharmacyStore.isUsingSupabase()) {
-      return supabaseService.updateForecastSettings(updates);
+      const res = await supabaseService.updateForecastSettings(updates);
+      this.cachedSettings = res;
+      this.cachedSettingsTime = Date.now();
+      return res;
     }
 
     if (updates.defaultHorizonDays !== undefined) {
@@ -185,6 +196,8 @@ class ForecastingService {
       this.inMemorySettings.method = updates.method;
     }
 
+    this.cachedSettings = { ...this.inMemorySettings };
+    this.cachedSettingsTime = Date.now();
     return { ...this.inMemorySettings };
   }
 
@@ -240,9 +253,10 @@ class ForecastingService {
     medicineId: string,
     horizonDays?: number,
     existingMed?: MedicineWithBatches,
-    preloadedSales?: any[]
+    preloadedSales?: any[],
+    preloadedSettings?: ForecastSettings
   ): Promise<MedicineForecastSummary> {
-    const settings = await this.getSettings();
+    const settings = preloadedSettings || (await this.getSettings());
     const selectedHorizon = horizonDays || settings.defaultHorizonDays;
     const med = existingMed || (await pharmacyStore.getMedicineById(medicineId));
     if (!med) {
@@ -510,8 +524,10 @@ class ForecastingService {
   public async getForecastOverview(horizonDays?: number): Promise<ForecastOverview> {
     const settings = await this.getSettings();
     const horizon = horizonDays || settings.defaultHorizonDays;
-    const medicines = await pharmacyStore.getAllMedicines();
-    const allSales = await pharmacyStore.getAllSales();
+    const [medicines, allSales] = await Promise.all([
+      pharmacyStore.getAllMedicines(),
+      pharmacyStore.getAllSales(),
+    ]);
 
     let increasingDemandCount = 0;
     let decreasingDemandCount = 0;
@@ -523,7 +539,7 @@ class ForecastingService {
 
     for (const med of medicines) {
       try {
-        const f = await this.calculateMedicineForecast(med.id, horizon, med, allSales);
+        const f = await this.calculateMedicineForecast(med.id, horizon, med, allSales, settings);
         totalForecasted30DayDemand += f.predicted30DayDemand;
 
         if (f.demandTrend === 'increasing') increasingDemandCount++;
@@ -540,7 +556,7 @@ class ForecastingService {
       }
     }
 
-    const reorders = await this.getReorderRecommendations({ horizonDays: horizon }, medicines, allSales);
+    const reorders = await this.getReorderRecommendations({ horizonDays: horizon }, medicines, allSales, settings);
     const totalSuggestedReorderUnits = reorders.reduce((sum, r) => sum + r.suggestedReorderQuantity, 0);
     const pendingReviewsCount = reorders.filter((r) => r.reviewStatus === 'pending').length;
 
@@ -571,31 +587,29 @@ class ForecastingService {
       horizonDays?: number;
     },
     preloadedMedicines?: MedicineWithBatches[],
-    preloadedSales?: any[]
+    preloadedSales?: any[],
+    preloadedSettings?: ForecastSettings
   ): Promise<ReorderRecommendation[]> {
-    const settings = await this.getSettings();
-    const medicines = preloadedMedicines || (await pharmacyStore.getAllMedicines());
-    const sales = preloadedSales || (await pharmacyStore.getAllSales());
+    const settings = preloadedSettings || (await this.getSettings());
+    const [medicines, sales, reviewsMap] = await Promise.all([
+      preloadedMedicines ? Promise.resolve(preloadedMedicines) : pharmacyStore.getAllMedicines(),
+      preloadedSales ? Promise.resolve(preloadedSales) : pharmacyStore.getAllSales(),
+      (await pharmacyStore.isUsingSupabase())
+        ? supabaseService.getReorderReviews()
+        : Promise.resolve(this.inMemoryReviews),
+    ]);
     const horizon = filters?.horizonDays || settings.defaultHorizonDays;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const horizonEndDate = new Date(today);
     horizonEndDate.setDate(horizonEndDate.getDate() + horizon);
 
-    // Fetch review records from Supabase or in-memory
-    let reviewsMap: Map<string, any>;
-    if (await pharmacyStore.isUsingSupabase()) {
-      reviewsMap = await supabaseService.getReorderReviews();
-    } else {
-      reviewsMap = this.inMemoryReviews;
-    }
-
     const list: ReorderRecommendation[] = [];
 
     for (const med of medicines) {
       let forecast: MedicineForecastSummary;
       try {
-        forecast = await this.calculateMedicineForecast(med.id, horizon, med, sales);
+        forecast = await this.calculateMedicineForecast(med.id, horizon, med, sales, settings);
       } catch {
         continue;
       }
@@ -639,7 +653,7 @@ class ForecastingService {
       const review = reviewsMap.get(med.id);
       const reviewStatus: ReviewStatus = review?.status || 'pending';
       const adjustedQuantity = review?.adjustedQuantity;
-      const reviewerNotes = review?.reviewerNotes || review?.notes;
+      const reviewerNotes = (review as any)?.reviewerNotes || (review as any)?.notes;
       const reviewedAt = review?.reviewedAt;
 
       const estimatedPrice = med.purchasePrice || med.sellingPrice * 0.7;

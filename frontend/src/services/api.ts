@@ -31,6 +31,9 @@ import {
   ExtractedBillData,
   ConfirmBillInput,
   ConfirmBillResult,
+  MlDatasetInfo,
+  MlModelMetrics,
+  MlForecastingFullResult,
 } from '../types';
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
@@ -633,6 +636,52 @@ export const apiService = {
       return response.data.data;
     } catch (err) {
       return handleApiError(err, 'Failed to update forecast settings.');
+    }
+  },
+
+  // --- Scikit-learn GradientBoostingRegressor ML Demand Forecasting ---
+  async getMlPredictions(horizon: 7 | 30 | 90 = 30): Promise<MlForecastingFullResult> {
+    try {
+      const response = await apiClient.get<{ status: string; data: MlForecastingFullResult }>(
+        '/forecast/ml-predictions',
+        { params: { horizon } }
+      );
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to fetch GradientBoostingRegressor ML predictions.');
+    }
+  },
+
+  async getHistoricalDatasetInfo(): Promise<MlDatasetInfo> {
+    try {
+      const response = await apiClient.get<{ status: string; data: MlDatasetInfo }>(
+        '/forecast/historical-dataset'
+      );
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to fetch historical dataset metadata.');
+    }
+  },
+
+  async importHistoricalCsv(): Promise<any> {
+    try {
+      const response = await apiClient.post<{ status: string; data: any; message?: string }>(
+        '/forecast/import-historical'
+      );
+      return response.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to import historical sales CSV into Supabase.');
+    }
+  },
+
+  async retrainMlModel(): Promise<any> {
+    try {
+      const response = await apiClient.post<{ status: string; message: string; metrics: MlModelMetrics }>(
+        '/forecast/retrain'
+      );
+      return response.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to retrain GradientBoostingRegressor model.');
     }
   },
 

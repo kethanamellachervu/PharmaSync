@@ -15,6 +15,7 @@ import {
   ChevronRight,
   ShieldCheck,
   Zap,
+  Database,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -270,6 +271,43 @@ export const ForecastingPage: React.FC = () => {
           estimates derived from weighted moving averages and trend velocities from past pharmacy sales. They serve as
           decision-support indicators and are not guaranteed sales. Medicines with fewer than 7 days of sales are
           conservatively flagged.
+        </div>
+      </div>
+
+      {/* 2b. TASK 8: Historical Sales Data (Synthetic) Indication Badge Bar */}
+      <div className="p-4 rounded-xl bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-950 text-white border border-slate-700/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0">
+            <Database className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-bold text-white tracking-wide uppercase">
+                Historical Sales Data
+              </span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                Synthetic Historical Data
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-300 mt-0.5">
+              Strictly separated from live inventory and sales. Used exclusively for Demand Forecasting model training.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 text-xs font-mono shrink-0">
+          <div className="text-center px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">
+            <span className="text-[10px] text-slate-400 block font-sans uppercase">Duration</span>
+            <span className="font-bold text-white">6 months</span>
+          </div>
+          <div className="text-center px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">
+            <span className="text-[10px] text-slate-400 block font-sans uppercase">Coverage</span>
+            <span className="font-bold text-emerald-300">30 medicines</span>
+          </div>
+          <div className="text-center px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">
+            <span className="text-[10px] text-slate-400 block font-sans uppercase">Dataset Size</span>
+            <span className="font-bold text-white">5,490 records</span>
+          </div>
         </div>
       </div>
 

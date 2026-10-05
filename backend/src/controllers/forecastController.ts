@@ -205,3 +205,110 @@ export async function updateForecastSettings(req: Request, res: Response, next: 
     next(error);
   }
 }
+
+// ---------------------------------------------------------------------------
+// SCIKIT-LEARN GRADIENT BOOSTING REGRESSOR ML FORECASTING & DATASET APIS
+// ---------------------------------------------------------------------------
+
+export async function getMlPredictions(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const horizonParam = Number(req.query.horizon || req.query.period || 30);
+    const horizon: 7 | 30 | 90 = horizonParam === 7 || horizonParam === 90 ? horizonParam : 30;
+
+    const { mlForecastingService } = await import('../services/mlForecastingService.js');
+    const results = await mlForecastingService.getMlPredictions(horizon);
+
+    res.status(200).json({
+      status: 'success',
+      data: results,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getHistoricalDatasetInfo(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { getSupabaseClient } = await import('../config/supabase.js');
+    const client = getSupabaseClient();
+    let dbCount = 0;
+    if (client) {
+      const { count } = await client
+        .from('historical_sales')
+        .select('id', { count: 'exact', head: true });
+      dbCount = count || 0;
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        label: 'Historical Synthetic Sales Data',
+        sublabel: 'Synthetic Historical Data',
+        tagline: '6 months | 30 medicines | 5,490 records',
+        durationMonths: '6 months',
+        totalMedicines: '30 medicines',
+        totalRecords: '5,490 records',
+        dateRange: 'April 5, 2026 to October 4, 2026',
+        databaseTable: 'historical_sales',
+        supabaseRecordCount: dbCount,
+        isImportedToSupabase: dbCount >= 5490,
+        modelUsed: 'Scikit-learn GradientBoostingRegressor',
+        targetVariable: 'units_sold',
+        featuresEngineered: [
+          'lag_1',
+          'lag_7',
+          'lag_30',
+          'sales_7d_avg',
+          'sales_30d_avg',
+          'month',
+          'day_of_week',
+          'is_weekend',
+        ],
+        chronologicalSplit: {
+          training: '70%',
+          validation: '15%',
+          testing: '15%',
+        },
+        notice:
+          'Clearly labeled as Historical Synthetic Sales Data for ML model training. Not current inventory.',
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function importHistoricalCsv(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { importHistoricalSales } = await import('../scripts/importHistoricalSales.js');
+    const result = await importHistoricalSales();
+    res.status(200).json({
+      status: result.success ? 'success' : 'error',
+      data: result,
+      message: result.success
+        ? `Successfully imported ${result.recordsImported} historical sales records into Supabase table public.historical_sales!`
+        : (result as any).needsMigration
+        ? 'Table public.historical_sales does not exist in Supabase yet. Run supabase/migrations/20261005_historical_sales.sql in Supabase SQL editor.'
+        : result.error || 'Failed to import historical data.',
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function retrainMlModel(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { mlForecastingService } = await import('../services/mlForecastingService.js');
+    await mlForecastingService.runPythonTraining();
+    const results = await mlForecastingService.getMlPredictions(30);
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Scikit-learn GradientBoostingRegressor retrained and evaluated on historical dataset.',
+      metrics: results.metrics,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+

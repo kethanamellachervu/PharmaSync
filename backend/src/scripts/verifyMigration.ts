@@ -226,6 +226,12 @@ async function runVerification() {
   await testEndpoint('Get Purchases Analytics', '/analytics/purchases', {}, 200);
 
   // 9. Forecasting & Reorders
+  await testEndpoint('Get Historical Dataset Metadata', '/forecast/historical-dataset', {}, 200, (d) => {
+    return d.status === 'success' && d.data.totalRecords === '5,490 records' && d.data.totalMedicines === '30 medicines';
+  });
+  await testEndpoint('Get ML Predictions (GradientBoostingRegressor)', '/forecast/ml-predictions?horizon=30', {}, 200, (d) => {
+    return d.status === 'success' && d.data.metrics && d.data.predictions.length >= 30;
+  });
   await testEndpoint('Get Forecast Overview', '/forecast/overview', {}, 200);
   await testEndpoint('Get Medicine Forecasts', '/forecast/medicines', {}, 200);
   await testEndpoint('Get Reorder Recommendations', '/reorder', {}, 200);

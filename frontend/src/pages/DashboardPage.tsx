@@ -29,6 +29,7 @@ import WelcomeBanner from '../components/dashboard/WelcomeBanner';
 import StatCard from '../components/ui/StatCard';
 import InventoryAlerts from '../components/dashboard/InventoryAlerts';
 import RecentSalesTable from '../components/dashboard/RecentSalesTable';
+import DemandForecastingSection from '../components/dashboard/DemandForecastingSection';
 import AddMedicineModal from '../components/inventory/AddMedicineModal';
 import { apiService } from '../services/api';
 import { DashboardStats, ForecastOverview } from '../types';
@@ -333,7 +334,10 @@ export const DashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* 5. Two-Column Operational Overview: Alerts & Recent Sales */}
+      {/* 5. Demand Forecasting & Scikit-learn Machine Learning Section */}
+      <DemandForecastingSection />
+
+      {/* 6. Two-Column Operational Overview: Alerts & Recent Sales */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Inventory Action Alerts */}
         <InventoryAlerts

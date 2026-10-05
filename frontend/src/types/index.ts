@@ -609,3 +609,105 @@ export interface ConfirmBillResult {
   totalAmount: number;
 }
 
+// ==============================================================================
+// SCIKIT-LEARN GRADIENT BOOSTING REGRESSOR ML FORECASTING TYPES
+// ==============================================================================
+
+export interface MlDatasetInfo {
+  label: string;
+  sublabel: string;
+  tagline: string;
+  durationMonths: string;
+  totalMedicines: string;
+  totalRecords: string;
+  dateRange: string;
+  databaseTable: string;
+  supabaseRecordCount: number;
+  isImportedToSupabase: boolean;
+  modelUsed: string;
+  targetVariable: string;
+  featuresEngineered: string[];
+  chronologicalSplit: {
+    training: string;
+    validation: string;
+    testing: string;
+  };
+  notice: string;
+}
+
+export interface MlModelMetrics {
+  mae: number;
+  rmse: number;
+  mape_percent: number;
+  baseline_moving_avg: {
+    name: string;
+    mae: number;
+    rmse: number;
+    mape_percent: number;
+  };
+  improvement_over_baseline: {
+    mae_reduction_percent: number;
+    rmse_reduction_percent: number;
+  };
+}
+
+export interface MlMedicinePrediction {
+  medicineId: string;
+  medicineName: string;
+  csvMedicineId: string;
+  csvMedicineName: string;
+  currentStock: number;
+  minStockLevel: number;
+  safetyStock: number;
+  leadTimeDays: number;
+  dailyAverageSales: number;
+  forecast7d: number;
+  forecast30d: number;
+  forecast90d: number;
+  selectedHorizon: 7 | 30 | 90;
+  predictedHorizonDemand: number;
+  reorderRecommendation: 'REORDER NOW' | 'STOCK SUFFICIENT';
+  recommendedQuantity: number;
+  calculationBreakdown: {
+    formula: string;
+    predictedDemand: number;
+    safetyStock: number;
+    currentStock: number;
+    netShortage: number;
+  };
+  recentHistory: {
+    date: string;
+    units_sold: number;
+    sales_7d_avg: number;
+  }[];
+  dailyForecasts: {
+    day: number;
+    date: string;
+    predicted_units: number;
+  }[];
+}
+
+export interface MlForecastingFullResult {
+  modelName: string;
+  dataset: {
+    name: string;
+    total_raw_records: number;
+    training_records: number;
+    validation_records: number;
+    testing_records: number;
+    total_medicines: number;
+    source: string;
+    is_synthetic: boolean;
+  };
+  metrics: MlModelMetrics;
+  predictions: MlMedicinePrediction[];
+  summary: {
+    totalMedicinesAnalyzed: number;
+    reorderNowCount: number;
+    stockSufficientCount: number;
+    total30dForecastUnits: number;
+    totalRecommendedOrderUnits: number;
+  };
+}
+
+

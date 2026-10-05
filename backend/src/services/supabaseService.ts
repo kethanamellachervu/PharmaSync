@@ -1634,30 +1634,114 @@ export class SupabaseService {
   }
 
   public async getDashboardAnalytics() {
-    const medicines = await this.getAllMedicines();
-    const alerts = await this.getInventoryAlerts();
-    const todaySales = await this.getTodaySalesAmount();
-    const todayPurchases = await this.getTodayPurchaseAmount();
-    const monthSales = await this.getMonthSalesAmount();
-    const salesTrend = await this.getRecentSalesTrend(7);
-    const categoryDistribution = await this.getCategoryDistribution();
-    const recentSales = (await this.getAllSales()).slice(0, 5);
-    const recentPurchases = (await this.getAllPurchases()).slice(0, 5);
-    const settings = await this.getShopSettings();
+    const [medicines, allSales, allPurchases, settings] = await Promise.all([
+      this.getAllMedicines(),
+      this.getAllSales(),
+      this.getAllPurchases(),
+      this.getShopSettings(),
+    ]);
 
     const totalMedicines = medicines.length;
     const availableStock = medicines.reduce((sum, m) => sum + m.usableStock, 0);
     const totalInventoryValue = medicines.reduce((sum, m) => sum + m.usableStock * m.sellingPrice, 0);
 
+    const nearExpiryDays = settings.nearExpiryDays || 30;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const nearExpiryThreshold = new Date(today);
+    nearExpiryThreshold.setDate(nearExpiryThreshold.getDate() + nearExpiryDays);
+
+    let lowStockCount = 0;
+    let outOfStockCount = 0;
+    let nearExpiryBatchCount = 0;
+    let expiredBatchCount = 0;
+    const lowStockMedicines: any[] = [];
+    const nearExpiryBatches: any[] = [];
+    const expiredBatches: any[] = [];
+
+    const categoryMap = new Map<string, number>();
+
+    for (const m of medicines) {
+      if (m.usableStock === 0) outOfStockCount++;
+      else if (m.usableStock <= m.minStockLevel) {
+        lowStockCount++;
+        lowStockMedicines.push({
+          id: m.id,
+          name: m.name,
+          category: m.category,
+          totalStock: m.usableStock,
+          minStock: m.minStockLevel,
+          unit: m.unit,
+        });
+      }
+
+      const catCount = categoryMap.get(m.category) || 0;
+      categoryMap.set(m.category, catCount + 1);
+
+      for (const b of m.batches) {
+        const exp = new Date(b.expiryDate);
+        exp.setHours(0, 0, 0, 0);
+        if (exp < today) {
+          expiredBatchCount++;
+          expiredBatches.push({ ...b, medicineName: m.name });
+        } else if (exp <= nearExpiryThreshold) {
+          nearExpiryBatchCount++;
+          nearExpiryBatches.push({ ...b, medicineName: m.name });
+        }
+      }
+    }
+
+    const categoryDistribution = Array.from(categoryMap.entries()).map(([category, count]) => ({
+      category,
+      count,
+      percentage: totalMedicines > 0 ? Math.round((count / totalMedicines) * 100) : 0,
+    }));
+
+    const todayStr = today.toISOString().split('T')[0];
+    const currentMonthStr = todayStr.substring(0, 7);
+
+    let todaySales = 0;
+    let monthSales = 0;
+    for (const s of allSales) {
+      const sDate = s.createdAt ? s.createdAt.split('T')[0] : '';
+      if (sDate === todayStr) todaySales += Number(s.totalAmount || 0);
+      if (sDate.startsWith(currentMonthStr)) monthSales += Number(s.totalAmount || 0);
+    }
+    todaySales = Math.round(todaySales * 100) / 100;
+    monthSales = Math.round(monthSales * 100) / 100;
+
+    let todayPurchases = 0;
+    for (const p of allPurchases) {
+      const pDate = p.createdAt ? p.createdAt.split('T')[0] : '';
+      if (pDate === todayStr) todayPurchases += Number(p.totalAmount || 0);
+    }
+    todayPurchases = Math.round(todayPurchases * 100) / 100;
+
+    const salesTrend: { date: string; amount: number; orderCount: number }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const dayKey = d.toISOString().split('T')[0];
+      const daySales = allSales.filter((s) => s.createdAt && s.createdAt.startsWith(dayKey));
+      salesTrend.push({
+        date: dayKey,
+        amount: Math.round(daySales.reduce((sum, s) => sum + Number(s.totalAmount || 0), 0) * 100) / 100,
+        orderCount: daySales.length,
+      });
+    }
+
+    const recentSales = allSales.slice(0, 5);
+    const recentPurchases = allPurchases.slice(0, 5);
+
     const summary = {
       totalMedicines,
       availableStock,
-      lowStockCount: alerts.summary.lowStockCount,
-      outOfStockCount: alerts.summary.outOfStockCount,
+      lowStockCount,
+      outOfStockCount,
       todaySalesAmount: todaySales,
       todayPurchaseAmount: todayPurchases,
-      nearExpiryBatchCount: alerts.summary.nearExpiryBatchCount,
-      expiredBatchCount: alerts.summary.expiredBatchCount,
+      nearExpiryBatchCount,
+      expiredBatchCount,
       monthSalesAmount: monthSales,
       totalInventoryValue: Math.round(totalInventoryValue * 100) / 100,
     };
@@ -1669,16 +1753,9 @@ export class SupabaseService {
       categoryDistribution,
       recentSales,
       recentPurchases,
-      lowStockMedicines: alerts.lowStockMedicines.slice(0, 5).map((m) => ({
-        id: m.id,
-        name: m.name,
-        category: m.category,
-        totalStock: m.usableStock,
-        minStock: m.minStockLevel,
-        unit: m.unit,
-      })),
-      nearExpiryBatches: alerts.nearExpiryBatches.slice(0, 5),
-      nearExpiryMedicines: alerts.nearExpiryBatches.slice(0, 5),
+      lowStockMedicines: lowStockMedicines.slice(0, 5),
+      nearExpiryBatches: nearExpiryBatches.slice(0, 5),
+      nearExpiryMedicines: nearExpiryBatches.slice(0, 5),
       settings,
       // Flat properties
       totalMedicines,
@@ -1687,10 +1764,10 @@ export class SupabaseService {
       todaySalesAmount: todaySales,
       todayPurchaseAmount: todayPurchases,
       monthSalesAmount: monthSales,
-      lowStockCount: alerts.summary.lowStockCount,
-      outOfStockCount: alerts.summary.outOfStockCount,
-      nearExpiryBatchCount: alerts.summary.nearExpiryBatchCount,
-      expiredBatchCount: alerts.summary.expiredBatchCount,
+      lowStockCount,
+      outOfStockCount,
+      nearExpiryBatchCount,
+      expiredBatchCount,
     };
   }
 

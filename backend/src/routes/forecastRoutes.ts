@@ -5,9 +5,19 @@ import {
   getMedicineForecastById,
   getForecastSettings,
   updateForecastSettings,
+  getMlPredictions,
+  getHistoricalDatasetInfo,
+  importHistoricalCsv,
+  retrainMlModel,
 } from '../controllers/forecastController.js';
 
 const router = Router();
+
+// ML Demand Forecasting (Scikit-learn GradientBoostingRegressor)
+router.get('/ml-predictions', getMlPredictions);
+router.get('/historical-dataset', getHistoricalDatasetInfo);
+router.post('/import-historical', importHistoricalCsv);
+router.post('/retrain', retrainMlModel);
 
 // Forecast overview KPI summary
 router.get('/overview', getForecastOverview);
@@ -23,3 +33,4 @@ router.get('/settings', getForecastSettings);
 router.put('/settings', updateForecastSettings);
 
 export default router;
+
