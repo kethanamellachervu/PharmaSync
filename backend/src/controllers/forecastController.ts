@@ -305,7 +305,7 @@ export async function retrainMlModel(req: Request, res: Response, next: NextFunc
     res.status(200).json({
       status: 'success',
       message: 'Scikit-learn GradientBoostingRegressor retrained and evaluated on historical dataset.',
-      metrics: results.metrics,
+      metrics: (results as any).metrics || results.summary,
     });
   } catch (error) {
     next(error);

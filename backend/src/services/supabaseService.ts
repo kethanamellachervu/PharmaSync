@@ -15,6 +15,7 @@ import {
   ConfirmBillResult,
 } from '../types/pharmacy.js';
 import { ForecastSettings, ReviewStatus } from './forecastingService.js';
+import { inMemoryStore } from './inMemoryStore.js';
 
 export interface SupabaseReviewRecord {
   status: ReviewStatus;
@@ -2490,7 +2491,94 @@ export class SupabaseService {
       totalAmount: Math.round(totalAmount * 100) / 100,
     };
   }
+
+  // ---------------------------------------------------------------------------
+  // PROCUREMENT & ADMIN APPROVAL WORKFLOW
+  // ---------------------------------------------------------------------------
+  public async getAllPurchaseRequests(filter?: { status?: string; medicineId?: string }) {
+    try {
+      const client = getSupabaseClient();
+      if (!client) return inMemoryStore.getAllPurchaseRequests(filter);
+      let query = client.from('purchase_requests').select('*').order('created_at', { ascending: false });
+      if (filter?.status) query = query.eq('status', filter.status);
+      if (filter?.medicineId) query = query.eq('medicine_id', filter.medicineId);
+      const { data, error } = await query;
+      if (error || !data || data.length === 0) return inMemoryStore.getAllPurchaseRequests(filter);
+      return data.map((r: any) => ({
+        id: r.id,
+        requestNumber: r.request_number || `REQ-${r.id.substring(0, 4)}`,
+        medicineId: r.medicine_id,
+        medicineName: r.medicine_name,
+        supplierId: r.supplier_id,
+        supplierName: r.supplier_name,
+        currentStock: Number(r.current_stock || 0),
+        forecastDemand: Number(r.forecast_demand || 0),
+        recommendedQuantity: Number(r.recommended_quantity),
+        priority: r.priority || 'medium',
+        reason: r.reason,
+        forecastExplanation: r.forecast_explanation,
+        status: r.status,
+        requestDate: new Date(r.created_at).toISOString(),
+        approvedAt: r.approved_at ? new Date(r.approved_at).toISOString() : undefined,
+        approvedBy: r.approved_by,
+        rejectedAt: r.rejected_at ? new Date(r.rejected_at).toISOString() : undefined,
+        rejectionReason: r.rejection_reason,
+        unitPrice: r.unit_price ? Number(r.unit_price) : undefined,
+        totalPrice: r.total_price ? Number(r.total_price) : undefined,
+        expectedDelivery: r.expected_delivery,
+        createdAt: new Date(r.created_at).toISOString(),
+        updatedAt: new Date(r.updated_at).toISOString(),
+      }));
+    } catch {
+      return inMemoryStore.getAllPurchaseRequests(filter);
+    }
+  }
+
+  public async getPurchaseRequestById(id: string) {
+    return inMemoryStore.getPurchaseRequestById(id);
+  }
+
+  public async generatePurchaseRequestFromRecommendation(data: any) {
+    return inMemoryStore.generatePurchaseRequestFromRecommendation(data);
+  }
+
+  public async approvePurchaseRequest(id: string, approvedBy?: string) {
+    return inMemoryStore.approvePurchaseRequest(id, approvedBy);
+  }
+
+  public async rejectPurchaseRequest(id: string, rejectionReason: string) {
+    return inMemoryStore.rejectPurchaseRequest(id, rejectionReason);
+  }
+
+  public async getSupplierConversations() {
+    return inMemoryStore.getSupplierConversations();
+  }
+
+  public async getSupplierConversationById(id: string) {
+    return inMemoryStore.getSupplierConversationById(id);
+  }
+
+  public async getSupplierMessages(conversationId: string) {
+    return inMemoryStore.getSupplierMessages(conversationId);
+  }
+
+  public async sendSupplierMessage(conversationId: string, messageText: string, senderType?: 'supplier' | 'ai' | 'system') {
+    return inMemoryStore.sendSupplierMessage(conversationId, messageText, senderType);
+  }
+
+  public async getNotifications(role?: string) {
+    return inMemoryStore.getNotifications(role);
+  }
+
+  public async markNotificationRead(id: string) {
+    return inMemoryStore.markNotificationRead(id);
+  }
+
+  public async getProcurementSummary() {
+    return inMemoryStore.getProcurementSummary();
+  }
 }
 
 export const supabaseService = new SupabaseService();
+
 
