@@ -428,7 +428,7 @@ export interface NavItem {
 // PHASE 5: DEMAND FORECASTING & SMART REORDERING TYPES
 // ==============================================================================
 
-export type ForecastHorizon = 7 | 30 | 90;
+export type ForecastHorizon = 7 | 30;
 export type DemandTrend = 'increasing' | 'decreasing' | 'stable' | 'insufficient_data' | 'no_sales';
 export type ReorderUrgency = 'critical' | 'high' | 'medium' | 'low';
 export type ReviewStatus = 'pending' | 'reviewed' | 'dismissed';
@@ -654,27 +654,24 @@ export interface MlModelMetrics {
 export interface MlMedicinePrediction {
   medicineId: string;
   medicineName: string;
+  genericName?: string;
+  category: string;
+  unit: string;
   csvMedicineId: string;
   csvMedicineName: string;
   currentStock: number;
   minStockLevel: number;
   safetyStock: number;
-  leadTimeDays: number;
   dailyAverageSales: number;
   forecast7d: number;
   forecast30d: number;
-  forecast90d: number;
-  selectedHorizon: 7 | 30 | 90;
+  selectedHorizon: 7 | 30;
   predictedHorizonDemand: number;
+  demandTrend: 'Increasing' | 'Decreasing' | 'Stable';
+  stockStatus: 'Good' | 'May Run Out Soon' | 'Low Stock';
+  whatToDo: 'No action needed' | 'Plan Purchase';
   reorderRecommendation: 'REORDER NOW' | 'STOCK SUFFICIENT';
   recommendedQuantity: number;
-  calculationBreakdown: {
-    formula: string;
-    predictedDemand: number;
-    safetyStock: number;
-    currentStock: number;
-    netShortage: number;
-  };
   recentHistory: {
     date: string;
     units_sold: number;
@@ -688,26 +685,103 @@ export interface MlMedicinePrediction {
 }
 
 export interface MlForecastingFullResult {
-  modelName: string;
-  dataset: {
-    name: string;
-    total_raw_records: number;
-    training_records: number;
-    validation_records: number;
-    testing_records: number;
-    total_medicines: number;
-    source: string;
-    is_synthetic: boolean;
-  };
-  metrics: MlModelMetrics;
   predictions: MlMedicinePrediction[];
   summary: {
     totalMedicinesAnalyzed: number;
     reorderNowCount: number;
     stockSufficientCount: number;
+    total7dForecastUnits: number;
     total30dForecastUnits: number;
     totalRecommendedOrderUnits: number;
   };
 }
+
+// -----------------------------------------------------------------------------
+// PROCUREMENT & ADMIN APPROVAL WORKFLOW TYPES
+// -----------------------------------------------------------------------------
+export type PurchaseRequestStatus =
+  | 'PENDING_ADMIN_APPROVAL'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'ORDER_SENT'
+  | 'SUPPLIER_RESPONDED'
+  | 'ORDER_CONFIRMED'
+  | 'FULFILLED';
+
+export interface PurchaseRequest {
+  id: string;
+  requestNumber: string;
+  medicineId: string;
+  medicineName: string;
+  supplierId: string;
+  supplierName: string;
+  currentStock: number;
+  forecastDemand: number;
+  recommendedQuantity: number;
+  priority: 'critical' | 'high' | 'medium' | 'low';
+  reason: string;
+  forecastExplanation?: string;
+  status: PurchaseRequestStatus;
+  requestDate: string;
+  approvedAt?: string;
+  approvedBy?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
+  unitPrice?: number;
+  totalPrice?: number;
+  expectedDelivery?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExtractedOrderDetails {
+  availableQuantity?: number;
+  unitPrice?: number;
+  totalPrice?: number;
+  expectedDelivery?: string;
+  isConfirmed?: boolean;
+  missingFields?: string[];
+}
+
+export interface SupplierConversation {
+  id: string;
+  purchaseRequestId: string;
+  supplierId: string;
+  supplierName: string;
+  medicineId: string;
+  medicineName: string;
+  requestedQuantity: number;
+  orderNumber: string;
+  status: 'ORDER_SENT' | 'SUPPLIER_RESPONDED' | 'ORDER_CONFIRMED';
+  extractedData?: ExtractedOrderDetails;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SupplierMessage {
+  id: string;
+  conversationId: string;
+  senderType: 'ai' | 'supplier' | 'system';
+  message: string;
+  messageType: 'text' | 'confirmation_summary' | 'order_request';
+  extractedData?: ExtractedOrderDetails;
+  createdAt: string;
+}
+
+export interface InAppNotification {
+  id: string;
+  recipientRole: 'admin' | 'pharmacist' | 'all';
+  title: string;
+  message: string;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export interface ProcurementSummary {
+  pendingAdminApprovalCount: number;
+  ordersSentCount: number;
+  ordersConfirmedCount: number;
+}
+
 
 

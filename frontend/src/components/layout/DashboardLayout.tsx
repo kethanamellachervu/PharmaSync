@@ -12,11 +12,25 @@ const LayoutContent: React.FC = () => {
   const getPageTitle = (pathname: string): string => {
     switch (pathname) {
       case '/':
-        return 'Pharmacy Dashboard';
+        return 'Pharmacist Dashboard';
+      case '/admin':
+        return 'Admin Dashboard & Stock Approvals';
+      case '/supplier-messages':
+        return 'Supplier Communication Hub';
       case '/inventory':
         return 'Medicine Inventory';
       case '/sales':
         return 'Point of Sale & Billing';
+      case '/suppliers':
+        return 'Suppliers & Vendors';
+      case '/purchases':
+        return 'Purchase Orders & Inward Bills';
+      case '/reports':
+        return 'Pharmacy Analytics & Reports';
+      case '/forecasting':
+        return 'Stock Planning & Demand Forecast';
+      case '/reorder':
+        return 'Stock Alerts & Reorders';
       case '/settings':
         return 'Pharmacy Settings';
       default:

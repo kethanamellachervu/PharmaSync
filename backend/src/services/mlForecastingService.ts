@@ -8,16 +8,6 @@ export interface MlModelMetrics {
   mae: number;
   rmse: number;
   mape_percent: number;
-  baseline_moving_avg: {
-    name: string;
-    mae: number;
-    rmse: number;
-    mape_percent: number;
-  };
-  improvement_over_baseline: {
-    mae_reduction_percent: number;
-    rmse_reduction_percent: number;
-  };
 }
 
 export interface MlDatasetInfo {
@@ -28,33 +18,29 @@ export interface MlDatasetInfo {
   testing_records: number;
   total_medicines: number;
   source: string;
-  is_synthetic: boolean;
 }
 
 export interface MlMedicinePrediction {
   medicineId: string;
   medicineName: string;
+  genericName?: string;
+  category: string;
+  unit: string;
   csvMedicineId: string;
   csvMedicineName: string;
   currentStock: number;
   minStockLevel: number;
   safetyStock: number;
-  leadTimeDays: number;
   dailyAverageSales: number;
   forecast7d: number;
   forecast30d: number;
-  forecast90d: number;
-  selectedHorizon: 7 | 30 | 90;
+  selectedHorizon: 7 | 30;
   predictedHorizonDemand: number;
+  demandTrend: 'Increasing' | 'Decreasing' | 'Stable';
+  stockStatus: 'Good' | 'May Run Out Soon' | 'Low Stock';
+  whatToDo: 'No action needed' | 'Plan Purchase';
   reorderRecommendation: 'REORDER NOW' | 'STOCK SUFFICIENT';
   recommendedQuantity: number;
-  calculationBreakdown: {
-    formula: string;
-    predictedDemand: number;
-    safetyStock: number;
-    currentStock: number;
-    netShortage: number;
-  };
   recentHistory: {
     date: string;
     units_sold: number;
@@ -68,14 +54,12 @@ export interface MlMedicinePrediction {
 }
 
 export interface MlForecastingFullResult {
-  modelName: string;
-  dataset: MlDatasetInfo;
-  metrics: MlModelMetrics;
   predictions: MlMedicinePrediction[];
   summary: {
     totalMedicinesAnalyzed: number;
     reorderNowCount: number;
     stockSufficientCount: number;
+    total7dForecastUnits: number;
     total30dForecastUnits: number;
     totalRecommendedOrderUnits: number;
   };
@@ -91,7 +75,6 @@ class MlForecastingService {
       path.resolve('src/../ml/forecast_results.json'),
       path.resolve(process.cwd(), 'ml/forecast_results.json'),
       path.resolve(process.cwd(), 'backend/ml/forecast_results.json'),
-      path.resolve('c:/Users/ketha/smart-pharmacy/backend/ml/forecast_results.json'),
     ];
 
     for (const p of candidatePaths) {
@@ -100,9 +83,6 @@ class MlForecastingService {
     return candidatePaths[0];
   }
 
-  /**
-   * Loads trained model results from disk or trains if missing
-   */
   public async getRawMlResults(): Promise<any> {
     const filePath = this.getResultsFilePath();
 
@@ -121,8 +101,7 @@ class MlForecastingService {
       }
     }
 
-    // Trigger training if not found
-    console.log('[MlForecastingService] forecast_results.json not found. Triggering python model training...');
+    // Trigger python training script if results file not found
     await this.runPythonTraining();
 
     if (fs.existsSync(filePath)) {
@@ -135,9 +114,6 @@ class MlForecastingService {
     throw new Error('Forecast model results could not be loaded or generated.');
   }
 
-  /**
-   * Runs the Python GradientBoostingRegressor training script
-   */
   public async runPythonTraining(): Promise<void> {
     return new Promise((resolve, reject) => {
       const pyScript = path.resolve(
@@ -162,26 +138,18 @@ class MlForecastingService {
 
       pyProcess.on('close', (code) => {
         if (code === 0) {
-          console.log('[MlForecastingService] Python training succeeded:', stdout);
           resolve();
         } else {
-          console.error('[MlForecastingService] Python training failed with code', code, stderr);
           reject(new Error(`Python model training failed: ${stderr || stdout}`));
         }
       });
     });
   }
 
-  /**
-   * Normalization helper for fuzzy medicine matching
-   */
   private norm(s: string): string {
     return s.toLowerCase().replace(/[^a-z0-9]/g, '');
   }
 
-  /**
-   * Match DB medicine against the 30 ML trained medicines
-   */
   private matchDbMedicineWithMl(
     dbMed: MedicineWithBatches,
     mlMedicines: Record<string, any>
@@ -189,7 +157,7 @@ class MlForecastingService {
     const dbCleanName = this.norm(dbMed.name);
     const dbCleanGeneric = dbMed.genericName ? this.norm(dbMed.genericName) : '';
 
-    // Direct name containment
+    // Direct exact or substring match
     for (const [key, mlMed] of Object.entries(mlMedicines)) {
       const mlClean = this.norm(mlMed.medicine_name);
       if (
@@ -205,162 +173,95 @@ class MlForecastingService {
     return null;
   }
 
-  /**
-   * Generates ML predictions and reorder recommendations for all PharmaSync inventory
-   */
-  public async getMlPredictions(horizon: 7 | 30 | 90 = 30): Promise<MlForecastingFullResult> {
+  public async getMlPredictions(horizon: 7 | 30 = 30): Promise<MlForecastingFullResult> {
     const mlData = await this.getRawMlResults();
     const medicines = await pharmacyStore.getAllMedicines();
-    const client = getSupabaseClient();
-
-    // Check if Supabase historical_sales table has been created and populated
-    let dbHistoricalCount = 0;
-    if (client) {
-      const { count } = await client
-        .from('historical_sales')
-        .select('id', { count: 'exact', head: true });
-      dbHistoricalCount = count || 0;
-    }
+    const mlMedicines = mlData.medicines as Record<string, any>;
 
     const predictions: MlMedicinePrediction[] = [];
-    const mlMedicines = mlData.medicines as Record<string, any>;
     const usedMlKeys = new Set<string>();
 
-    // 1. Process all active PharmaSync medicines
     for (const med of medicines) {
       const match = this.matchDbMedicineWithMl(med, mlMedicines);
       let mlEntry: any = null;
-      let csvId = 'MED_EST';
+      let csvId = 'MED001';
 
       if (match) {
         mlEntry = match.med;
         csvId = match.key;
         usedMlKeys.add(match.key);
       } else {
-        // Fallback to MED001 profile scaled to current medicine
         mlEntry = mlMedicines['MED001'] || Object.values(mlMedicines)[0];
       }
 
       const currentStock = med.usableStock;
-      const forecast7d = mlEntry.forecast_7d;
-      const forecast30d = mlEntry.forecast_30d;
-      const forecast90d = mlEntry.forecast_90d;
-
-      const predictedDemand =
-        horizon === 7 ? forecast7d : horizon === 90 ? forecast90d : forecast30d;
-
+      const forecast7d = mlEntry.forecast_7d || 0;
+      const forecast30d = mlEntry.forecast_30d || 0;
+      const predictedDemand = horizon === 7 ? forecast7d : forecast30d;
       const safetyStock = mlEntry.safety_stock || Math.ceil(med.minStockLevel * 0.5);
 
-      // STEP 6: Reorder Recommendation Rule
-      // If predicted demand is greater than available stock: REORDER NOW, otherwise: STOCK SUFFICIENT
-      const isReorder = predictedDemand > currentStock;
-      const reorderRecommendation: 'REORDER NOW' | 'STOCK SUFFICIENT' = isReorder
-        ? 'REORDER NOW'
-        : 'STOCK SUFFICIENT';
+      // Trend Calculation
+      const daily7Avg = forecast7d / 7;
+      const daily30Avg = mlEntry.daily_average_sales || (forecast30d / 30);
+      let demandTrend: 'Increasing' | 'Decreasing' | 'Stable' = 'Stable';
+      if (daily7Avg > daily30Avg * 1.05) demandTrend = 'Increasing';
+      else if (daily7Avg < daily30Avg * 0.95) demandTrend = 'Decreasing';
 
-      // recommended quantity: predicted demand + safety stock - current stock
+      // Stock Status Calculation
+      let stockStatus: 'Good' | 'May Run Out Soon' | 'Low Stock' = 'Good';
+      if (currentStock < forecast7d || currentStock <= med.minStockLevel) {
+        stockStatus = 'Low Stock';
+      } else if (currentStock < forecast30d) {
+        stockStatus = 'May Run Out Soon';
+      }
+
+      // Action Calculation
+      const whatToDo: 'No action needed' | 'Plan Purchase' =
+        stockStatus === 'Good' ? 'No action needed' : 'Plan Purchase';
+
+      const isReorder = stockStatus !== 'Good';
       const netShortage = predictedDemand + safetyStock - currentStock;
       const recommendedQuantity = Math.max(0, Math.round(netShortage));
 
       predictions.push({
         medicineId: med.id,
-        medicineName: med.name,
+        medicineName: med.name.replace(/\(Historical Dataset\)/g, '').trim(),
+        genericName: med.genericName,
+        category: med.category || 'General',
+        unit: med.unit || 'units',
         csvMedicineId: csvId,
         csvMedicineName: mlEntry.medicine_name,
         currentStock,
         minStockLevel: med.minStockLevel,
         safetyStock,
-        leadTimeDays: mlEntry.lead_time_days || 7,
-        dailyAverageSales: mlEntry.daily_average_sales,
+        dailyAverageSales: Number((daily30Avg).toFixed(1)),
         forecast7d,
         forecast30d,
-        forecast90d,
         selectedHorizon: horizon,
         predictedHorizonDemand: predictedDemand,
-        reorderRecommendation,
-        recommendedQuantity,
-        calculationBreakdown: {
-          formula: 'predicted demand + safety stock - current stock',
-          predictedDemand,
-          safetyStock,
-          currentStock,
-          netShortage,
-        },
-        recentHistory: mlEntry.recent_history || [],
-        dailyForecasts:
-          horizon === 90 ? mlEntry.daily_forecasts_90d : mlEntry.daily_forecasts_30d,
-      });
-    }
-
-    // 2. Also append CSV catalog medicines for full visibility of all 30 historical medicines
-    for (const [key, mlMed] of Object.entries(mlMedicines)) {
-      if (usedMlKeys.has(key)) continue;
-
-      const currentStock = mlMed.safety_stock * 2; // benchmark stock
-      const forecast7d = mlMed.forecast_7d;
-      const forecast30d = mlMed.forecast_30d;
-      const forecast90d = mlMed.forecast_90d;
-      const predictedDemand =
-        horizon === 7 ? forecast7d : horizon === 90 ? forecast90d : forecast30d;
-      const safetyStock = mlMed.safety_stock;
-      const isReorder = predictedDemand > currentStock;
-
-      predictions.push({
-        medicineId: `csv-${key}`,
-        medicineName: `${mlMed.medicine_name} (Historical Dataset)`,
-        csvMedicineId: key,
-        csvMedicineName: mlMed.medicine_name,
-        currentStock,
-        minStockLevel: mlMed.reorder_level,
-        safetyStock,
-        leadTimeDays: mlMed.lead_time_days,
-        dailyAverageSales: mlMed.daily_average_sales,
-        forecast7d,
-        forecast30d,
-        forecast90d,
-        selectedHorizon: horizon,
-        predictedHorizonDemand: predictedDemand,
+        demandTrend,
+        stockStatus,
+        whatToDo,
         reorderRecommendation: isReorder ? 'REORDER NOW' : 'STOCK SUFFICIENT',
-        recommendedQuantity: Math.max(0, Math.round(predictedDemand + safetyStock - currentStock)),
-        calculationBreakdown: {
-          formula: 'predicted demand + safety stock - current stock',
-          predictedDemand,
-          safetyStock,
-          currentStock,
-          netShortage: predictedDemand + safetyStock - currentStock,
-        },
-        recentHistory: mlMed.recent_history || [],
-        dailyForecasts:
-          horizon === 90 ? mlMed.daily_forecasts_90d : mlMed.daily_forecasts_30d,
+        recommendedQuantity,
+        recentHistory: mlEntry.recent_history || [],
+        dailyForecasts: (mlEntry.daily_forecasts_30d || []).slice(0, horizon),
       });
     }
 
-    const reorderNowCount = predictions.filter((p) => p.reorderRecommendation === 'REORDER NOW').length;
-    const stockSufficientCount = predictions.filter((p) => p.reorderRecommendation === 'STOCK SUFFICIENT').length;
+    const reorderNowCount = predictions.filter((p) => p.whatToDo === 'Plan Purchase').length;
+    const stockSufficientCount = predictions.filter((p) => p.whatToDo === 'No action needed').length;
+    const total7dForecastUnits = predictions.reduce((s, p) => s + p.forecast7d, 0);
     const total30dForecastUnits = predictions.reduce((s, p) => s + p.forecast30d, 0);
     const totalRecommendedOrderUnits = predictions.reduce((s, p) => s + p.recommendedQuantity, 0);
 
     return {
-      modelName: mlData.model_name || 'Scikit-learn GradientBoostingRegressor',
-      dataset: {
-        name: 'Historical Synthetic Sales Data (6 months)',
-        total_raw_records: 5490,
-        training_records: mlData.dataset?.training_records || 3843,
-        validation_records: mlData.dataset?.validation_records || 823,
-        testing_records: mlData.dataset?.testing_records || 824,
-        total_medicines: 30,
-        source:
-          dbHistoricalCount > 0
-            ? `Supabase PostgreSQL (table public.historical_sales, ${dbHistoricalCount} rows)`
-            : 'pharmasync_forecasting_dataset_6_months.csv (5,490 records)',
-        is_synthetic: true,
-      },
-      metrics: mlData.metrics,
       predictions,
       summary: {
         totalMedicinesAnalyzed: predictions.length,
         reorderNowCount,
         stockSufficientCount,
+        total7dForecastUnits,
         total30dForecastUnits,
         totalRecommendedOrderUnits,
       },

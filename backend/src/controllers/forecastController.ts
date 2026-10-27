@@ -213,7 +213,7 @@ export async function updateForecastSettings(req: Request, res: Response, next: 
 export async function getMlPredictions(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const horizonParam = Number(req.query.horizon || req.query.period || 30);
-    const horizon: 7 | 30 | 90 = horizonParam === 7 || horizonParam === 90 ? horizonParam : 30;
+    const horizon: 7 | 30 = horizonParam === 7 ? 7 : 30;
 
     const { mlForecastingService } = await import('../services/mlForecastingService.js');
     const results = await mlForecastingService.getMlPredictions(horizon);
@@ -305,7 +305,7 @@ export async function retrainMlModel(req: Request, res: Response, next: NextFunc
     res.status(200).json({
       status: 'success',
       message: 'Scikit-learn GradientBoostingRegressor retrained and evaluated on historical dataset.',
-      metrics: results.metrics,
+      metrics: (results as any).metrics || results.summary,
     });
   } catch (error) {
     next(error);

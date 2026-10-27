@@ -9,6 +9,7 @@ import analyticsRoutes from './analyticsRoutes.js';
 import reportsRoutes from './reportsRoutes.js';
 import forecastRoutes from './forecastRoutes.js';
 import reorderRoutes from './reorderRoutes.js';
+import procurementRoutes from './procurementRoutes.js';
 
 const apiRouter = Router();
 
@@ -22,6 +23,7 @@ apiRouter.use('/analytics', analyticsRoutes);
 apiRouter.use('/reports', reportsRoutes);
 apiRouter.use('/forecast', forecastRoutes);
 apiRouter.use('/reorder', reorderRoutes);
+apiRouter.use('/procurement', procurementRoutes);
 apiRouter.use('/settings', settingsRoutes);
 
 export default apiRouter;

@@ -5,6 +5,8 @@ import ErrorBoundary from './components/ui/ErrorBoundary';
 
 // Dynamic code-splitting for performance
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage'));
+const SupplierMessagesPage = lazy(() => import('./pages/SupplierMessagesPage'));
 const InventoryPage = lazy(() => import('./pages/InventoryPage'));
 const SalesPage = lazy(() => import('./pages/SalesPage'));
 const SuppliersPage = lazy(() => import('./pages/SuppliersPage'));
@@ -30,6 +32,8 @@ export const App: FC = () => {
           <Routes>
             <Route path="/" element={<DashboardLayout />}>
               <Route index element={<DashboardPage />} />
+              <Route path="admin" element={<AdminDashboardPage />} />
+              <Route path="supplier-messages" element={<SupplierMessagesPage />} />
               <Route path="inventory" element={<InventoryPage />} />
               <Route path="sales" element={<SalesPage />} />
               <Route path="suppliers" element={<SuppliersPage />} />

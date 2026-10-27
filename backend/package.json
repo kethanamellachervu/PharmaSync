@@ -9,7 +9,8 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "test:api": "tsx src/scripts/verifyMigration.ts",
-    "test:ocr": "tsx src/scripts/testBillOcr.ts"
+    "test:ocr": "tsx src/scripts/testBillOcr.ts",
+    "test:procurement": "tsx src/scripts/testProcurementWorkflow.ts"
   },
   "keywords": [
     "pharmacy",

@@ -15,7 +15,14 @@ import {
   FefoAllocationResult,
   ConfirmBillInput,
   ConfirmBillResult,
+  PurchaseRequest,
+  PurchaseRequestStatus,
+  SupplierConversation,
+  SupplierMessage,
+  InAppNotification,
+  ExtractedOrderDetails,
 } from '../types/pharmacy.js';
+import { supplierAgentService } from './supplierAgentService.js';
 
 function buildSeedHistoricalSales(): Sale[] {
   const sales: Sale[] = [];
@@ -261,6 +268,58 @@ class InMemoryStore {
     pharmacistName: 'Store Pharmacist',
     nearExpiryDays: 30, // 30 days for Phase 2 strict near-expiry requirement
   };
+
+  private purchaseRequests: PurchaseRequest[] = [
+    {
+      id: 'req-101',
+      requestNumber: 'REQ-1001',
+      medicineId: 'med-1',
+      medicineName: 'Paracetamol 500mg Tablets',
+      supplierId: 'sup-1',
+      supplierName: 'ABC Pharma Distributors',
+      currentStock: 18,
+      forecastDemand: 120,
+      recommendedQuantity: 132,
+      priority: 'critical',
+      reason: 'Current stock is 18 units, while projected demand is 120 units. After accounting for safety stock requirement, PharmaSync recommends purchasing 132 units.',
+      forecastExplanation: 'Current stock is 18 units, while projected demand is 120 units. After accounting for safety stock requirement, PharmaSync recommends purchasing 132 units.',
+      status: 'PENDING_ADMIN_APPROVAL',
+      requestDate: new Date(Date.now() - 3600 * 1000 * 4).toISOString(),
+      createdAt: new Date(Date.now() - 3600 * 1000 * 4).toISOString(),
+      updatedAt: new Date(Date.now() - 3600 * 1000 * 4).toISOString(),
+    },
+    {
+      id: 'req-102',
+      requestNumber: 'REQ-1002',
+      medicineId: 'med-2',
+      medicineName: 'Amoxicillin 500mg Capsules',
+      supplierId: 'sup-2',
+      supplierName: 'MedSupply Co.',
+      currentStock: 12,
+      forecastDemand: 50,
+      recommendedQuantity: 60,
+      priority: 'high',
+      reason: 'Usable stock (12) is below minimum alert threshold (25).',
+      forecastExplanation: 'Current stock is 12 units, while projected demand is 50 units. Reordering 60 units to satisfy baseline min stock requirements.',
+      status: 'PENDING_ADMIN_APPROVAL',
+      requestDate: new Date(Date.now() - 3600 * 1000 * 12).toISOString(),
+      createdAt: new Date(Date.now() - 3600 * 1000 * 12).toISOString(),
+      updatedAt: new Date(Date.now() - 3600 * 1000 * 12).toISOString(),
+    },
+  ];
+
+  private supplierConversations: SupplierConversation[] = [];
+  private supplierMessages: SupplierMessage[] = [];
+  private notifications: InAppNotification[] = [
+    {
+      id: 'notif-1',
+      recipientRole: 'admin',
+      title: 'New Purchase Request',
+      message: 'New stock purchase request generated: Paracetamol 500mg — 132 units',
+      isRead: false,
+      createdAt: new Date(Date.now() - 3600 * 1000 * 4).toISOString(),
+    },
+  ];
 
   private medicines: Medicine[] = [
     {
@@ -2208,6 +2267,321 @@ class InMemoryStore {
       batchesCreated,
       totalQuantity,
       totalAmount: Math.round(totalAmount * 100) / 100,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // PROCUREMENT & ADMIN APPROVAL WORKFLOW
+  // ---------------------------------------------------------------------------
+  public async getAllPurchaseRequests(filter?: { status?: string; medicineId?: string }): Promise<PurchaseRequest[]> {
+    let list = [...this.purchaseRequests];
+    if (filter?.status) {
+      list = list.filter((r) => r.status === filter.status);
+    }
+    if (filter?.medicineId) {
+      list = list.filter((r) => r.medicineId === filter.medicineId);
+    }
+    return list;
+  }
+
+  public async getPurchaseRequestById(id: string): Promise<PurchaseRequest | null> {
+    return this.purchaseRequests.find((r) => r.id === id || r.requestNumber === id) || null;
+  }
+
+  public async generatePurchaseRequestFromRecommendation(data: {
+    medicineId: string;
+    medicineName: string;
+    currentStock: number;
+    forecastDemand: number;
+    recommendedQuantity: number;
+    priority?: 'critical' | 'high' | 'medium' | 'low';
+    reason?: string;
+    forecastExplanation?: string;
+    supplierId?: string;
+    supplierName?: string;
+  }): Promise<PurchaseRequest | null> {
+    // Check duplicate: active request/order already exists for this medicine
+    const activeStatus = ['PENDING_ADMIN_APPROVAL', 'APPROVED', 'ORDER_SENT', 'SUPPLIER_RESPONDED', 'ORDER_CONFIRMED'];
+    const existingActive = this.purchaseRequests.find(
+      (r) => r.medicineId === data.medicineId && activeStatus.includes(r.status)
+    );
+    if (existingActive) {
+      return existingActive;
+    }
+
+    const supplier = data.supplierId
+      ? this.suppliers.find((s) => s.id === data.supplierId)
+      : this.suppliers[0];
+    const supplierId = supplier ? supplier.id : 'sup-1';
+    const supplierName = supplier ? supplier.name : (data.supplierName || 'ABC Pharma Distributors');
+
+    const nextIdNum = 1000 + this.purchaseRequests.length + 1;
+    const reqNumber = `REQ-${nextIdNum}`;
+    const now = new Date().toISOString();
+
+    const explanation = data.forecastExplanation ||
+      `Current stock is ${data.currentStock} units, while projected demand is ${data.forecastDemand} units. After accounting for safety stock requirement, PharmaSync recommends purchasing ${data.recommendedQuantity} units.`;
+
+    const newReq: PurchaseRequest = {
+      id: `req-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      requestNumber: reqNumber,
+      medicineId: data.medicineId,
+      medicineName: data.medicineName,
+      supplierId,
+      supplierName,
+      currentStock: data.currentStock,
+      forecastDemand: data.forecastDemand,
+      recommendedQuantity: data.recommendedQuantity,
+      priority: data.priority || 'medium',
+      reason: data.reason || 'Reorder threshold triggered by demand forecast.',
+      forecastExplanation: explanation,
+      status: 'PENDING_ADMIN_APPROVAL',
+      requestDate: now,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    this.purchaseRequests.unshift(newReq);
+
+    // Notify Admin
+    this.notifications.unshift({
+      id: `notif-${Date.now()}`,
+      recipientRole: 'admin',
+      title: 'New Purchase Request',
+      message: `New stock purchase request: ${newReq.medicineName} — ${newReq.recommendedQuantity} units`,
+      isRead: false,
+      createdAt: now,
+    });
+
+    return newReq;
+  }
+
+  public async approvePurchaseRequest(
+    id: string,
+    approvedBy = 'Admin (Store Manager)'
+  ): Promise<{ request: PurchaseRequest; conversation: SupplierConversation }> {
+    const reqIndex = this.purchaseRequests.findIndex((r) => r.id === id || r.requestNumber === id);
+    if (reqIndex === -1) {
+      throw new Error(`Purchase request with ID "${id}" not found.`);
+    }
+
+    const req = this.purchaseRequests[reqIndex];
+    if (req.status !== 'PENDING_ADMIN_APPROVAL') {
+      throw new Error(`Cannot approve request in status "${req.status}". Must be PENDING_ADMIN_APPROVAL.`);
+    }
+
+    const now = new Date().toISOString();
+    req.status = 'APPROVED';
+    req.approvedAt = now;
+    req.approvedBy = approvedBy;
+    req.updatedAt = now;
+
+    // Start AI Supplier Conversation
+    const convId = `conv-${Date.now()}`;
+    const orderNumber = `PO-${1100 + this.supplierConversations.length + 1}`;
+
+    const initialAiMessageText = supplierAgentService.generateOrderMessage(req);
+
+    const conversation: SupplierConversation = {
+      id: convId,
+      purchaseRequestId: req.id,
+      supplierId: req.supplierId,
+      supplierName: req.supplierName,
+      medicineId: req.medicineId,
+      medicineName: req.medicineName,
+      requestedQuantity: req.recommendedQuantity,
+      orderNumber,
+      status: 'ORDER_SENT',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const firstMsg: SupplierMessage = {
+      id: `msg-${Date.now()}`,
+      conversationId: convId,
+      senderType: 'ai',
+      message: initialAiMessageText,
+      messageType: 'order_request',
+      createdAt: now,
+    };
+
+    req.status = 'ORDER_SENT';
+
+    this.supplierConversations.unshift(conversation);
+    this.supplierMessages.push(firstMsg);
+
+    // Add Notification for Pharmacist and Admin
+    this.notifications.unshift({
+      id: `notif-${Date.now()}-1`,
+      recipientRole: 'all',
+      title: 'Order Sent to Supplier',
+      message: `Purchase request approved for ${req.medicineName}. Order #${orderNumber} sent to ${req.supplierName}.`,
+      isRead: false,
+      createdAt: now,
+    });
+
+    return { request: req, conversation };
+  }
+
+  public async rejectPurchaseRequest(id: string, rejectionReason: string): Promise<PurchaseRequest> {
+    const reqIndex = this.purchaseRequests.findIndex((r) => r.id === id || r.requestNumber === id);
+    if (reqIndex === -1) {
+      throw new Error(`Purchase request with ID "${id}" not found.`);
+    }
+
+    const req = this.purchaseRequests[reqIndex];
+    if (req.status !== 'PENDING_ADMIN_APPROVAL') {
+      throw new Error(`Cannot reject request in status "${req.status}".`);
+    }
+
+    const now = new Date().toISOString();
+    req.status = 'REJECTED';
+    req.rejectedAt = now;
+    req.rejectionReason = rejectionReason || 'Rejected by Admin.';
+    req.updatedAt = now;
+
+    this.notifications.unshift({
+      id: `notif-${Date.now()}`,
+      recipientRole: 'pharmacist',
+      title: 'Purchase Request Rejected',
+      message: `Purchase request for ${req.medicineName} was rejected by Admin. Reason: ${req.rejectionReason}`,
+      isRead: false,
+      createdAt: now,
+    });
+
+    return req;
+  }
+
+  public async getSupplierConversations(): Promise<SupplierConversation[]> {
+    return this.supplierConversations;
+  }
+
+  public async getSupplierConversationById(id: string): Promise<SupplierConversation | null> {
+    return this.supplierConversations.find((c) => c.id === id || c.purchaseRequestId === id) || null;
+  }
+
+  public async getSupplierMessages(conversationId: string): Promise<SupplierMessage[]> {
+    return this.supplierMessages.filter((m) => m.conversationId === conversationId);
+  }
+
+  public async sendSupplierMessage(
+    conversationId: string,
+    messageText: string,
+    senderType: 'supplier' | 'ai' | 'system' = 'supplier'
+  ): Promise<{ conversation: SupplierConversation; messages: SupplierMessage[] }> {
+    const conv = this.supplierConversations.find((c) => c.id === conversationId);
+    if (!conv) {
+      throw new Error(`Supplier conversation with ID "${conversationId}" not found.`);
+    }
+
+    const now = new Date().toISOString();
+    const userMsg: SupplierMessage = {
+      id: `msg-${Date.now()}`,
+      conversationId: conv.id,
+      senderType,
+      message: messageText,
+      messageType: 'text',
+      createdAt: now,
+    };
+    this.supplierMessages.push(userMsg);
+
+    // If sender is supplier, process with supplierAgentService
+    if (senderType === 'supplier') {
+      const extracted = supplierAgentService.extractOrderDetails(messageText, conv.requestedQuantity);
+      conv.extractedData = { ...(conv.extractedData || {}), ...extracted };
+
+      const req = this.purchaseRequests.find((r) => r.id === conv.purchaseRequestId);
+
+      const followUp = supplierAgentService.generateFollowUp(extracted, conv.requestedQuantity, conv.medicineName);
+
+      if (followUp.requiresFollowUp) {
+        conv.status = 'SUPPLIER_RESPONDED';
+        if (req) req.status = 'SUPPLIER_RESPONDED';
+
+        const aiFollowUpMsg: SupplierMessage = {
+          id: `msg-${Date.now() + 1}`,
+          conversationId: conv.id,
+          senderType: 'ai',
+          message: followUp.followUpMessage,
+          messageType: 'text',
+          createdAt: new Date(Date.now() + 100).toISOString(),
+        };
+        this.supplierMessages.push(aiFollowUpMsg);
+      } else if (extracted.isConfirmed) {
+        conv.status = 'ORDER_CONFIRMED';
+        if (req) {
+          req.status = 'ORDER_CONFIRMED';
+          req.unitPrice = extracted.unitPrice;
+          req.totalPrice = extracted.totalPrice;
+          req.expectedDelivery = extracted.expectedDelivery;
+        }
+
+        const summaryText = supplierAgentService.formatOrderConfirmationSummary(extracted, conv.requestedQuantity);
+
+        const aiConfirmMsg: SupplierMessage = {
+          id: `msg-${Date.now() + 1}`,
+          conversationId: conv.id,
+          senderType: 'ai',
+          message: summaryText,
+          messageType: 'confirmation_summary',
+          extractedData: extracted,
+          createdAt: new Date(Date.now() + 100).toISOString(),
+        };
+        this.supplierMessages.push(aiConfirmMsg);
+
+        // Notify Pharmacist of Order Confirmation
+        this.notifications.unshift({
+          id: `notif-${Date.now()}`,
+          recipientRole: 'pharmacist',
+          title: 'Supplier Confirmed Order',
+          message: `Supplier confirmed order: ${conv.medicineName} — ${conv.requestedQuantity} units`,
+          isRead: false,
+          createdAt: now,
+        });
+      }
+    }
+
+    conv.updatedAt = now;
+
+    const messages = this.supplierMessages.filter((m) => m.conversationId === conv.id);
+    return { conversation: conv, messages };
+  }
+
+  public async getNotifications(role?: string): Promise<InAppNotification[]> {
+    if (!role || role === 'all') {
+      return this.notifications;
+    }
+    return this.notifications.filter((n) => n.recipientRole === role || n.recipientRole === 'all');
+  }
+
+  public async markNotificationRead(id: string): Promise<boolean> {
+    const notif = this.notifications.find((n) => n.id === id);
+    if (notif) {
+      notif.isRead = true;
+      return true;
+    }
+    return false;
+  }
+
+  public async getProcurementSummary(): Promise<{
+    pendingAdminApprovalCount: number;
+    ordersSentCount: number;
+    ordersConfirmedCount: number;
+  }> {
+    const pendingAdminApprovalCount = this.purchaseRequests.filter(
+      (r) => r.status === 'PENDING_ADMIN_APPROVAL'
+    ).length;
+    const ordersSentCount = this.supplierConversations.filter(
+      (c) => c.status === 'ORDER_SENT' || c.status === 'SUPPLIER_RESPONDED'
+    ).length;
+    const ordersConfirmedCount = this.supplierConversations.filter(
+      (c) => c.status === 'ORDER_CONFIRMED'
+    ).length;
+
+    return {
+      pendingAdminApprovalCount,
+      ordersSentCount,
+      ordersConfirmedCount,
     };
   }
 }

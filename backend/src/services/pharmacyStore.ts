@@ -436,6 +436,93 @@ export class PharmacyStore {
     }
     return inMemoryStore.confirmBillPurchase(data);
   }
+
+  // ---------------------------------------------------------------------------
+  // PROCUREMENT & ADMIN APPROVAL WORKFLOW
+  // ---------------------------------------------------------------------------
+  public async getAllPurchaseRequests(filter?: { status?: string; medicineId?: string }) {
+    if (await this.isUsingSupabase()) {
+      return supabaseService.getAllPurchaseRequests(filter);
+    }
+    return inMemoryStore.getAllPurchaseRequests(filter);
+  }
+
+  public async getPurchaseRequestById(id: string) {
+    if (await this.isUsingSupabase()) {
+      return supabaseService.getPurchaseRequestById(id);
+    }
+    return inMemoryStore.getPurchaseRequestById(id);
+  }
+
+  public async generatePurchaseRequestFromRecommendation(data: any) {
+    if (await this.isUsingSupabase()) {
+      return supabaseService.generatePurchaseRequestFromRecommendation(data);
+    }
+    return inMemoryStore.generatePurchaseRequestFromRecommendation(data);
+  }
+
+  public async approvePurchaseRequest(id: string, approvedBy?: string) {
+    if (await this.isUsingSupabase()) {
+      return supabaseService.approvePurchaseRequest(id, approvedBy);
+    }
+    return inMemoryStore.approvePurchaseRequest(id, approvedBy);
+  }
+
+  public async rejectPurchaseRequest(id: string, rejectionReason: string) {
+    if (await this.isUsingSupabase()) {
+      return supabaseService.rejectPurchaseRequest(id, rejectionReason);
+    }
+    return inMemoryStore.rejectPurchaseRequest(id, rejectionReason);
+  }
+
+  public async getSupplierConversations() {
+    if (await this.isUsingSupabase()) {
+      return supabaseService.getSupplierConversations();
+    }
+    return inMemoryStore.getSupplierConversations();
+  }
+
+  public async getSupplierConversationById(id: string) {
+    if (await this.isUsingSupabase()) {
+      return supabaseService.getSupplierConversationById(id);
+    }
+    return inMemoryStore.getSupplierConversationById(id);
+  }
+
+  public async getSupplierMessages(conversationId: string) {
+    if (await this.isUsingSupabase()) {
+      return supabaseService.getSupplierMessages(conversationId);
+    }
+    return inMemoryStore.getSupplierMessages(conversationId);
+  }
+
+  public async sendSupplierMessage(conversationId: string, messageText: string, senderType?: 'supplier' | 'ai' | 'system') {
+    if (await this.isUsingSupabase()) {
+      return supabaseService.sendSupplierMessage(conversationId, messageText, senderType);
+    }
+    return inMemoryStore.sendSupplierMessage(conversationId, messageText, senderType);
+  }
+
+  public async getNotifications(role?: string) {
+    if (await this.isUsingSupabase()) {
+      return supabaseService.getNotifications(role);
+    }
+    return inMemoryStore.getNotifications(role);
+  }
+
+  public async markNotificationRead(id: string) {
+    if (await this.isUsingSupabase()) {
+      return supabaseService.markNotificationRead(id);
+    }
+    return inMemoryStore.markNotificationRead(id);
+  }
+
+  public async getProcurementSummary() {
+    if (await this.isUsingSupabase()) {
+      return supabaseService.getProcurementSummary();
+    }
+    return inMemoryStore.getProcurementSummary();
+  }
 }
 
 export const pharmacyStore = new PharmacyStore();

@@ -34,6 +34,11 @@ import {
   MlDatasetInfo,
   MlModelMetrics,
   MlForecastingFullResult,
+  PurchaseRequest,
+  SupplierConversation,
+  SupplierMessage,
+  InAppNotification,
+  ProcurementSummary,
 } from '../types';
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
@@ -640,7 +645,7 @@ export const apiService = {
   },
 
   // --- Scikit-learn GradientBoostingRegressor ML Demand Forecasting ---
-  async getMlPredictions(horizon: 7 | 30 | 90 = 30): Promise<MlForecastingFullResult> {
+  async getMlPredictions(horizon: 7 | 30 = 30): Promise<MlForecastingFullResult> {
     try {
       const response = await apiClient.get<{ status: string; data: MlForecastingFullResult }>(
         '/forecast/ml-predictions',
@@ -739,6 +744,99 @@ export const apiService = {
       return response.data.data;
     } catch (err) {
       return handleApiError(err, 'Failed to save shop settings.');
+    }
+  },
+
+  // --- Procurement & Admin Approval Workflow ---
+  async getPurchaseRequests(params?: { status?: string; medicineId?: string }): Promise<PurchaseRequest[]> {
+    try {
+      const response = await apiClient.get<{ status: string; data: PurchaseRequest[] }>('/procurement/purchase-requests', { params });
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to fetch purchase requests.');
+    }
+  },
+
+  async approvePurchaseRequest(id: string, approvedBy = 'Admin (Store Manager)'): Promise<{ request: PurchaseRequest; conversation: SupplierConversation }> {
+    try {
+      const response = await apiClient.post<{ status: string; data: { request: PurchaseRequest; conversation: SupplierConversation } }>(
+        `/procurement/purchase-requests/${id}/approve`,
+        { approvedBy }
+      );
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to approve purchase request.');
+    }
+  },
+
+  async rejectPurchaseRequest(id: string, rejectionReason: string): Promise<PurchaseRequest> {
+    try {
+      const response = await apiClient.post<{ status: string; data: PurchaseRequest }>(
+        `/procurement/purchase-requests/${id}/reject`,
+        { rejectionReason }
+      );
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to reject purchase request.');
+    }
+  },
+
+  async getSupplierConversations(): Promise<SupplierConversation[]> {
+    try {
+      const response = await apiClient.get<{ status: string; data: SupplierConversation[] }>('/procurement/supplier-conversations');
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to fetch supplier conversations.');
+    }
+  },
+
+  async getSupplierConversationById(id: string): Promise<{ conversation: SupplierConversation; messages: SupplierMessage[] }> {
+    try {
+      const response = await apiClient.get<{ status: string; data: { conversation: SupplierConversation; messages: SupplierMessage[] } }>(
+        `/procurement/supplier-conversations/${id}`
+      );
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to fetch supplier conversation details.');
+    }
+  },
+
+  async sendSupplierMessage(id: string, message: string, senderType: 'supplier' | 'ai' | 'system' = 'supplier'): Promise<{ conversation: SupplierConversation; messages: SupplierMessage[] }> {
+    try {
+      const response = await apiClient.post<{ status: string; data: { conversation: SupplierConversation; messages: SupplierMessage[] } }>(
+        `/procurement/supplier-conversations/${id}/messages`,
+        { message, senderType }
+      );
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to send supplier message.');
+    }
+  },
+
+  async getNotifications(role?: string): Promise<InAppNotification[]> {
+    try {
+      const response = await apiClient.get<{ status: string; data: InAppNotification[] }>('/procurement/notifications', { params: { role } });
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to fetch notifications.');
+    }
+  },
+
+  async markNotificationRead(id: string): Promise<boolean> {
+    try {
+      const response = await apiClient.post<{ status: string; data: { success: boolean } }>(`/procurement/notifications/${id}/read`);
+      return response.data.data.success;
+    } catch (err) {
+      return handleApiError(err, 'Failed to mark notification read.');
+    }
+  },
+
+  async getProcurementSummary(): Promise<ProcurementSummary> {
+    try {
+      const response = await apiClient.get<{ status: string; data: ProcurementSummary }>('/procurement/summary');
+      return response.data.data;
+    } catch (err) {
+      return handleApiError(err, 'Failed to fetch procurement summary.');
     }
   },
 };
