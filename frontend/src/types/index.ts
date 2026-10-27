@@ -696,4 +696,92 @@ export interface MlForecastingFullResult {
   };
 }
 
+// -----------------------------------------------------------------------------
+// PROCUREMENT & ADMIN APPROVAL WORKFLOW TYPES
+// -----------------------------------------------------------------------------
+export type PurchaseRequestStatus =
+  | 'PENDING_ADMIN_APPROVAL'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'ORDER_SENT'
+  | 'SUPPLIER_RESPONDED'
+  | 'ORDER_CONFIRMED'
+  | 'FULFILLED';
+
+export interface PurchaseRequest {
+  id: string;
+  requestNumber: string;
+  medicineId: string;
+  medicineName: string;
+  supplierId: string;
+  supplierName: string;
+  currentStock: number;
+  forecastDemand: number;
+  recommendedQuantity: number;
+  priority: 'critical' | 'high' | 'medium' | 'low';
+  reason: string;
+  forecastExplanation?: string;
+  status: PurchaseRequestStatus;
+  requestDate: string;
+  approvedAt?: string;
+  approvedBy?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
+  unitPrice?: number;
+  totalPrice?: number;
+  expectedDelivery?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExtractedOrderDetails {
+  availableQuantity?: number;
+  unitPrice?: number;
+  totalPrice?: number;
+  expectedDelivery?: string;
+  isConfirmed?: boolean;
+  missingFields?: string[];
+}
+
+export interface SupplierConversation {
+  id: string;
+  purchaseRequestId: string;
+  supplierId: string;
+  supplierName: string;
+  medicineId: string;
+  medicineName: string;
+  requestedQuantity: number;
+  orderNumber: string;
+  status: 'ORDER_SENT' | 'SUPPLIER_RESPONDED' | 'ORDER_CONFIRMED';
+  extractedData?: ExtractedOrderDetails;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SupplierMessage {
+  id: string;
+  conversationId: string;
+  senderType: 'ai' | 'supplier' | 'system';
+  message: string;
+  messageType: 'text' | 'confirmation_summary' | 'order_request';
+  extractedData?: ExtractedOrderDetails;
+  createdAt: string;
+}
+
+export interface InAppNotification {
+  id: string;
+  recipientRole: 'admin' | 'pharmacist' | 'all';
+  title: string;
+  message: string;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export interface ProcurementSummary {
+  pendingAdminApprovalCount: number;
+  ordersSentCount: number;
+  ordersConfirmedCount: number;
+}
+
+
 

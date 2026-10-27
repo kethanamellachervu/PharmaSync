@@ -11,6 +11,7 @@ import {
   RotateCcw,
   Truck,
   CheckCircle2,
+  Send,
 } from 'lucide-react';
 import WelcomeBanner from '../components/dashboard/WelcomeBanner';
 import StatCard from '../components/ui/StatCard';
@@ -18,11 +19,12 @@ import InventoryAlerts from '../components/dashboard/InventoryAlerts';
 import RecentSalesTable from '../components/dashboard/RecentSalesTable';
 import AddMedicineModal from '../components/inventory/AddMedicineModal';
 import { apiService } from '../services/api';
-import { DashboardStats, MlForecastingFullResult } from '../types';
+import { DashboardStats, MlForecastingFullResult, ProcurementSummary } from '../types';
 
 export const DashboardPage: React.FC = () => {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [mlData, setMlData] = useState<MlForecastingFullResult | null>(null);
+  const [procurementSummary, setProcurementSummary] = useState<ProcurementSummary | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -31,12 +33,14 @@ export const DashboardPage: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const [statsData, mlPredictions] = await Promise.all([
+      const [statsData, mlPredictions, procSummary] = await Promise.all([
         apiService.getDashboardStats(),
         apiService.getMlPredictions(30).catch(() => null),
+        apiService.getProcurementSummary().catch(() => null),
       ]);
       setStats(statsData);
       setMlData(mlPredictions);
+      setProcurementSummary(procSummary);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to load dashboard.';
       setError(msg);
@@ -236,7 +240,54 @@ export const DashboardPage: React.FC = () => {
         )}
       </div>
 
-      {/* 4. Two-Column Operational Overview: Recent Activity & Expiry Alerts */}
+      {/* 4. PROCUREMENT STATUS WIDGET */}
+      <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-subtle space-y-4">
+        <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-emerald-50 text-[#087F5B]">
+              <Truck className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-gray-900">Procurement Status</h3>
+              <p className="text-[11px] text-gray-400">Reorder request progression & supplier orders</p>
+            </div>
+          </div>
+          <Link
+            to="/supplier-messages"
+            className="text-xs font-bold text-[#087F5B] hover:underline flex items-center gap-1"
+          >
+            Supplier Messages
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200 flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-bold text-amber-800 uppercase tracking-wider">Pending Admin Approval</p>
+              <p className="text-2xl font-bold text-amber-900 mt-1">{procurementSummary?.pendingAdminApprovalCount ?? 0}</p>
+            </div>
+            <Clock className="w-6 h-6 text-amber-600" />
+          </div>
+
+          <div className="p-4 rounded-xl bg-blue-50/70 border border-blue-200 flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-bold text-blue-800 uppercase tracking-wider">Orders Sent to Suppliers</p>
+              <p className="text-2xl font-bold text-blue-900 mt-1">{procurementSummary?.ordersSentCount ?? 0}</p>
+            </div>
+            <Send className="w-6 h-6 text-blue-600" />
+          </div>
+
+          <div className="p-4 rounded-xl bg-emerald-50/70 border border-emerald-200 flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">Orders Confirmed</p>
+              <p className="text-2xl font-bold text-emerald-900 mt-1">{procurementSummary?.ordersConfirmedCount ?? 0}</p>
+            </div>
+            <CheckCircle2 className="w-6 h-6 text-emerald-600" />
+          </div>
+        </div>
+      </div>
+
+      {/* 5. Two-Column Operational Overview: Recent Activity & Expiry Alerts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <InventoryAlerts
           lowStockItems={stats?.lowStockMedicines || []}

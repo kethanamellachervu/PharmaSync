@@ -14,6 +14,8 @@ import {
   PlusCircle,
   Building2,
   User,
+  ShieldCheck,
+  MessageSquare,
 } from 'lucide-react';
 import { NavItem } from '../../types';
 import { useShopSettings } from '../../context/ShopSettingsContext';
@@ -24,7 +26,9 @@ interface SidebarProps {
 }
 
 const navItems: NavItem[] = [
-  { title: 'Dashboard', href: '/', icon: LayoutDashboard },
+  { title: 'Pharmacist Dashboard', href: '/', icon: LayoutDashboard },
+  { title: 'Admin Dashboard', href: '/admin', icon: ShieldCheck },
+  { title: 'Supplier Messages', href: '/supplier-messages', icon: MessageSquare },
   { title: 'Inventory', href: '/inventory', icon: Package },
   { title: 'Sales', href: '/sales', icon: ShoppingCart },
   { title: 'Suppliers', href: '/suppliers', icon: Truck },
