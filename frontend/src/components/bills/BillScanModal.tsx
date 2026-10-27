@@ -51,6 +51,10 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
   const [scanStepIndex, setScanStepIndex] = useState(0);
   const [scanElapsedSeconds, setScanElapsedSeconds] = useState(0);
 
+  // Intermediate session caching & extraction engine metadata
+  const [scanId, setScanId] = useState<string | null>(null);
+  const [aiProvider, setAiProvider] = useState<string | null>(null);
+
   // Extracted Bill form state
   const [supplierName, setSupplierName] = useState('');
   const [supplierId, setSupplierId] = useState<string>('');
@@ -163,10 +167,11 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
 
     const stepsTimer = setInterval(() => {
       setScanStepIndex((prev) => (prev < 3 ? prev + 1 : prev));
-    }, 1200);
+    }, 800);
 
     try {
-      const data: ExtractedBillData = await apiService.scanBill(selectedFile);
+      // Pass cached scanId if retrying so backend reuses intermediate OCR results instantly!
+      const data: ExtractedBillData = await apiService.scanBill(selectedFile, scanId || undefined);
       clearInterval(stepsTimer);
       clearInterval(elapsedTimer);
       populateExtractedData(data);
@@ -178,18 +183,27 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
         err.message && (err.message.includes('timeout') || err.message.includes('timed out'));
       const errorMsg = isTimeout
         ? 'Scanning timed out. Gemini took longer than expected to process your document. Please verify your connection and click "Retry AI Scan".'
-        : err.message || 'Bill scanning failed. Please review your file.';
+        : err.message || 'Medical document scanning failed. Please review your file.';
       setErrorMessage(errorMsg);
+      // Keep selectedFile intact so user can retry immediately without re-selecting
       setStage('UPLOAD');
     }
   };
 
   const populateExtractedData = (data: ExtractedBillData) => {
-    setSupplierName(data.supplierName || 'General Supplier');
-    setSupplierId(data.matchedSupplierId || '');
-    setInvoiceNumber(data.invoiceNumber || `INV-${Date.now().toString().slice(-6)}`);
-    setInvoiceDate(data.invoiceDate || new Date().toISOString().split('T')[0]);
-    setItems(data.items || []);
+    if (data.scanId) setScanId(data.scanId);
+    if (data.aiProviderUsed) setAiProvider(data.aiProviderUsed);
+
+    // Preserve existing user-entered values if already supplied
+    setSupplierName((prev) =>
+      prev.trim() && prev !== 'General Supplier' ? prev : data.supplierName || 'General Supplier'
+    );
+    setSupplierId((prev) => (prev ? prev : data.matchedSupplierId || ''));
+    setInvoiceNumber((prev) => (prev.trim() ? prev : data.invoiceNumber || `INV-${Date.now().toString().slice(-6)}`));
+    setInvoiceDate((prev) => (prev.trim() ? prev : data.invoiceDate || new Date().toISOString().split('T')[0]));
+    if (data.items && data.items.length > 0) {
+      setItems(data.items);
+    }
     setServerWarnings(data.warnings || []);
   };
 
@@ -304,6 +318,13 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
     setSelectedFile(null);
     setFilePreviewUrl(null);
     setIsPdf(false);
+    setScanId(null);
+    setAiProvider(null);
+    setSupplierName('');
+    setSupplierId('');
+    setInvoiceNumber('');
+    setInvoiceDate('');
+    setBillNotes('');
     setItems([]);
     setErrorMessage(null);
     setSaveResult(null);
@@ -573,10 +594,10 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
 
             <div className="w-full max-w-md space-y-2.5 text-left">
               {[
-                'Extracting image layout & invoice header...',
-                'Parsing medicine lines, batch numbers & quantities...',
-                'Validating expiry dates and pricing against FEFO rules...',
-                'Cross-referencing existing Supabase catalog...',
+                'Document preparation & orientation validation...',
+                'Extracting text via local Tesseract OCR & PDF engine...',
+                'AI field interpretation & medical terminology mapping...',
+                'Validating batches, dates & medicine catalog...',
               ].map((step, idx) => (
                 <div
                   key={idx}
@@ -603,10 +624,38 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
         {/* STAGE 3: REVIEW & CORRECTION */}
         {stage === 'REVIEW' && (
           <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-              <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
-                Please check the details before saving.
-              </span>
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  Predefined Form Fields Mapped
+                </span>
+                {aiProvider && (
+                  <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-emerald-500" />
+                    {aiProvider === 'gemini-text-ocr'
+                      ? 'Local OCR + Gemini Field Interpreter'
+                      : aiProvider === 'deterministic-medical-parser'
+                      ? 'Local OCR + Medical Layout Parser'
+                      : 'Gemini AI Vision'}
+                  </span>
+                )}
+                {scanId && (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800">
+                    Session cached
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleStartScan()}
+                  className="px-2.5 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 rounded-lg border border-emerald-200 dark:border-emerald-800 flex items-center gap-1.5 transition"
+                  title="Re-run extraction on the uploaded document"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  Re-Scan Document
+                </button>
+              </div>
             </div>
 
             {/* Warning Banner if fields are missing */}
@@ -746,7 +795,7 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
                               placeholder="Medicine brand & strength"
                               className="w-full px-2.5 py-1.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-medium text-slate-900 dark:text-slate-100 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                             />
-                            <div className="mt-1 flex items-center gap-1.5">
+                            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                               {isMatched ? (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950 px-1.5 py-0.5 rounded">
                                   <Check className="w-3 h-3" /> Matched: {item.matchedMedicineName}
@@ -756,6 +805,17 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
                                   <Plus className="w-3 h-3" /> Will create new medicine
                                 </span>
                               )}
+                              <span
+                                className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${
+                                  item.confidence === 'high'
+                                    ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                                    : item.confidence === 'medium'
+                                    ? 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
+                                    : 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300'
+                                }`}
+                              >
+                                {item.confidence}
+                              </span>
                             </div>
                           </td>
 

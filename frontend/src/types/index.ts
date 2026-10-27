@@ -557,6 +557,7 @@ export interface ExtractedBillItem {
   unit?: string;
   confidence: 'high' | 'medium' | 'low';
   missingFields: string[];
+  fieldEvidence?: Record<string, { value: any; status: string; sourceText?: string }>;
 }
 
 export interface ExtractedBillData {
@@ -569,6 +570,9 @@ export interface ExtractedBillData {
   aiProviderUsed: string;
   confidence: 'high' | 'medium' | 'low';
   warnings: string[];
+  scanId?: string;
+  ocrText?: string;
+  fieldEvidence?: Record<string, { value: any; status: string; sourceText?: string }>;
 }
 
 export interface ConfirmBillItemInput {

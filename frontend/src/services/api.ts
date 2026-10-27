@@ -375,27 +375,31 @@ export const apiService = {
   },
 
   async scanBill(
-    fileOrPayload: File | { fileData: string; mimeType: string; fileName: string }
+    fileOrPayload: File | { fileData: string; mimeType: string; fileName: string },
+    scanId?: string
   ): Promise<ExtractedBillData> {
     try {
       if (fileOrPayload instanceof File) {
         const formData = new FormData();
         formData.append('billFile', fileOrPayload);
+        if (scanId) {
+          formData.append('scanId', scanId);
+        }
         const response = await apiClient.post<{ status: string; data: ExtractedBillData }>(
           '/purchases/scan-bill',
           formData,
           {
             headers: { 'Content-Type': 'multipart/form-data' },
-            timeout: 90000, // 90s timeout for Gemini AI image/PDF OCR analysis
+            timeout: 60000,
           }
         );
         return response.data.data;
       } else {
         const response = await apiClient.post<{ status: string; data: ExtractedBillData }>(
           '/purchases/scan-bill',
-          fileOrPayload,
+          { ...fileOrPayload, scanId },
           {
-            timeout: 90000, // 90s timeout for Gemini AI image/PDF OCR analysis
+            timeout: 60000,
           }
         );
         return response.data.data;

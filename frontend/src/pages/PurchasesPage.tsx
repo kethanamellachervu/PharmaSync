@@ -72,8 +72,9 @@ export const PurchasesPage: React.FC = () => {
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
+    setErrorMessage(null);
     try {
-      const [purchasesData, suppliersData, medsData] = await Promise.all([
+      const [purchasesRes, suppliersRes, medsRes] = await Promise.allSettled([
         apiService.getPurchases({
           supplierId: filterSupplierId || undefined,
           date: filterDate || undefined,
@@ -81,15 +82,36 @@ export const PurchasesPage: React.FC = () => {
         apiService.getSuppliers(),
         apiService.getInventory(),
       ]);
-      setPurchases(purchasesData);
-      setSuppliers(suppliersData);
-      setMedicines(medsData);
-    } catch {
-      setErrorMessage('Failed to load purchases data.');
+
+      if (purchasesRes.status === 'fulfilled') {
+        setPurchases(Array.isArray(purchasesRes.value) ? purchasesRes.value : []);
+      } else {
+        console.error('Failed to load purchases:', purchasesRes.reason);
+        setErrorMessage('Failed to load purchases records.');
+      }
+
+      if (suppliersRes.status === 'fulfilled') {
+        setSuppliers(Array.isArray(suppliersRes.value) ? suppliersRes.value : []);
+      } else {
+        console.error('Failed to load suppliers:', suppliersRes.reason);
+      }
+
+      if (medsRes.status === 'fulfilled') {
+        setMedicines(Array.isArray(medsRes.value) ? medsRes.value : []);
+      } else {
+        console.error('Failed to load medicines:', medsRes.reason);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to load purchases data.';
+      setErrorMessage(msg);
     } finally {
       setIsLoading(false);
     }
   }, [filterSupplierId, filterDate]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const location = useLocation();
   const locationState = location.state as PurchasesLocationState | null;
@@ -293,6 +315,18 @@ export const PurchasesPage: React.FC = () => {
     }
   };
 
+  const handleViewDetails = async (po: Purchase) => {
+    setSelectedPurchaseDetails(po);
+    try {
+      const fullPo = await apiService.getPurchaseById(po.id);
+      if (fullPo) {
+        setSelectedPurchaseDetails(fullPo);
+      }
+    } catch {
+      // Keep po as fallback details
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Header Card */}
@@ -416,7 +450,16 @@ export const PurchasesPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {purchases.length === 0 ? (
+              {isLoading ? (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-gray-500">
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <RefreshCw className="w-5 h-5 animate-spin text-[#087F5B]" />
+                      <span className="text-xs font-medium">Loading purchase records...</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : purchases.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-10 text-center text-gray-400">
                     No purchase orders found matching criteria. Click "Record New Purchase" to receive stock.
@@ -431,24 +474,24 @@ export const PurchasesPage: React.FC = () => {
                     <td className="py-3.5 px-4 font-semibold text-gray-800">
                       <div className="flex items-center gap-1.5">
                         <Truck className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                        <span>{po.supplierName}</span>
+                        <span>{po.supplierName || 'Unknown Supplier'}</span>
                       </div>
                     </td>
                     <td className="py-3.5 px-4 text-gray-600">
                       {formatPurchaseDate(po.createdAt)}
                     </td>
                     <td className="py-3.5 px-4 text-center font-medium text-gray-700">
-                      {po.items.length} {po.items.length === 1 ? 'item' : 'items'}
+                      {(po.items || []).length} {(po.items || []).length === 1 ? 'item' : 'items'}
                     </td>
                     <td className="py-3.5 px-4 text-center font-bold font-mono text-gray-900">
-                      {po.totalQuantity} units
+                      {po.totalQuantity || 0} units
                     </td>
                     <td className="py-3.5 px-4 text-right font-mono font-bold text-[#087F5B]">
-                      ₹{po.totalAmount.toFixed(2)}
+                      ₹{Number(po.totalAmount || 0).toFixed(2)}
                     </td>
                     <td className="py-3.5 px-4 text-center">
                       <button
-                        onClick={() => setSelectedPurchaseDetails(po)}
+                        onClick={() => handleViewDetails(po)}
                         className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-[#DDF5E9] hover:text-[#087F5B] text-gray-600 text-xs font-semibold transition-colors cursor-pointer"
                       >
                         <Eye className="w-3.5 h-3.5" />
@@ -769,7 +812,7 @@ export const PurchasesPage: React.FC = () => {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 rounded-xl bg-gray-50 border border-gray-200">
               <div>
                 <span className="text-[10px] text-gray-400 uppercase font-semibold block">Supplier</span>
-                <span className="font-bold text-gray-800">{selectedPurchaseDetails.supplierName}</span>
+                <span className="font-bold text-gray-800">{selectedPurchaseDetails.supplierName || 'Unknown'}</span>
               </div>
               <div>
                 <span className="text-[10px] text-gray-400 uppercase font-semibold block">Date</span>
@@ -780,13 +823,13 @@ export const PurchasesPage: React.FC = () => {
               <div>
                 <span className="text-[10px] text-gray-400 uppercase font-semibold block">Total Stock</span>
                 <span className="font-bold font-mono text-gray-800">
-                  {selectedPurchaseDetails.totalQuantity} units
+                  {selectedPurchaseDetails.totalQuantity || 0} units
                 </span>
               </div>
               <div>
                 <span className="text-[10px] text-gray-400 uppercase font-semibold block">Total Inward Cost</span>
                 <span className="font-bold font-mono text-[#087F5B]">
-                  ₹{selectedPurchaseDetails.totalAmount.toFixed(2)}
+                  ₹{Number(selectedPurchaseDetails.totalAmount || 0).toFixed(2)}
                 </span>
               </div>
             </div>
@@ -817,18 +860,26 @@ export const PurchasesPage: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {selectedPurchaseDetails.items.map((it) => (
-                      <tr key={it.id} className="hover:bg-gray-50/60">
-                        <td className="py-2 px-3 font-semibold text-gray-800">{it.medicineName}</td>
-                        <td className="py-2 px-3 font-mono font-bold text-gray-700">{it.batchNumber}</td>
-                        <td className="py-2 px-3 text-gray-600">{it.expiryDate}</td>
-                        <td className="py-2 px-3 text-center font-bold">{it.quantity}</td>
-                        <td className="py-2 px-3 text-right font-mono">₹{it.purchasePrice.toFixed(2)}</td>
-                        <td className="py-2 px-3 text-right font-mono font-bold text-[#087F5B]">
-                          ₹{it.subtotal.toFixed(2)}
+                    {(!selectedPurchaseDetails.items || selectedPurchaseDetails.items.length === 0) ? (
+                      <tr>
+                        <td colSpan={6} className="py-6 text-center text-gray-400">
+                          No item line details found for this purchase order.
                         </td>
                       </tr>
-                    ))}
+                    ) : (
+                      selectedPurchaseDetails.items.map((it) => (
+                        <tr key={it.id || `${it.medicineId}-${it.batchNumber}`} className="hover:bg-gray-50/60">
+                          <td className="py-2 px-3 font-semibold text-gray-800">{it.medicineName || 'Medicine'}</td>
+                          <td className="py-2 px-3 font-mono font-bold text-gray-700">{it.batchNumber}</td>
+                          <td className="py-2 px-3 text-gray-600">{it.expiryDate}</td>
+                          <td className="py-2 px-3 text-center font-bold">{it.quantity}</td>
+                          <td className="py-2 px-3 text-right font-mono">₹{Number(it.purchasePrice || 0).toFixed(2)}</td>
+                          <td className="py-2 px-3 text-right font-mono font-bold text-[#087F5B]">
+                            ₹{Number(it.subtotal || 0).toFixed(2)}
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
