@@ -22,8 +22,9 @@ const server = app.listen(PORT, async () => {
   console.log('==================================================');
 });
 
-// Configure generous HTTP server timeouts for AI Vision and PDF processing
-server.timeout = 120000; // 120 seconds
+// Disable fixed HTTP server timeouts (0 = no timeout) to support long-running deep learning OCR pipelines
+server.timeout = 0;
+server.requestTimeout = 0;
 server.keepAliveTimeout = 65000;
 server.headersTimeout = 66000;
 

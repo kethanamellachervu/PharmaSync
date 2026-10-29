@@ -1,5 +1,6 @@
 export * from '../types/pharmacy.js';
 import {
+  Medicine,
   MedicineWithBatches,
   MedicineBatch,
   StockMovement,
@@ -20,16 +21,24 @@ export class PharmacyStore {
   private dbConnected: boolean | null = null;
   private lastCheckTime: number = 0;
 
+  // In-memory catalog cache with 60-second TTL to avoid reloading catalog repeatedly during scans
+  private catalogMedicinesCache: Medicine[] | null = null;
+  private catalogMedicinesCacheTime: number = 0;
+  private catalogSuppliersCache: Supplier[] | null = null;
+  private catalogSuppliersCacheTime: number = 0;
+  private static readonly CATALOG_CACHE_TTL_MS = 60000; // 60 seconds
+
   /**
    * Checks whether Supabase PostgreSQL is configured and active.
-   * Caches result for 5 seconds to prevent overhead.
+   * Caches successful connection for 15s and failed connection for 20s.
    */
   public async isUsingSupabase(): Promise<boolean> {
     if (!envConfig.isSupabaseConfigured) {
       return false;
     }
     const now = Date.now();
-    if (this.dbConnected !== null && now - this.lastCheckTime < 5000) {
+    const cooldown = this.dbConnected === false ? 20000 : 15000;
+    if (this.dbConnected !== null && now - this.lastCheckTime < cooldown) {
       return this.dbConnected;
     }
     this.lastCheckTime = now;
@@ -48,6 +57,83 @@ export class PharmacyStore {
    */
   public async isUsingPostgres(): Promise<boolean> {
     return this.isUsingSupabase();
+  }
+
+  /**
+   * Invalidate in-memory catalog cache when inventory/purchases change.
+   */
+  public invalidateCatalogCache(): void {
+    this.catalogMedicinesCache = null;
+    this.catalogMedicinesCacheTime = 0;
+    this.catalogSuppliersCache = null;
+    this.catalogSuppliersCacheTime = 0;
+    console.log('[CatalogValidation] In-memory catalog cache invalidated.');
+  }
+
+  /**
+   * Fetch lightweight medicine catalog for OCR & bill validation.
+   * Uses cached catalog if available within TTL to avoid repeatedly loading from DB during scans.
+   */
+  public async getCatalogMedicines(forceFresh = false): Promise<Medicine[]> {
+    const now = Date.now();
+    if (
+      !forceFresh &&
+      this.catalogMedicinesCache &&
+      now - this.catalogMedicinesCacheTime < PharmacyStore.CATALOG_CACHE_TTL_MS
+    ) {
+      return this.catalogMedicinesCache;
+    }
+
+    const t0 = Date.now();
+    let medicines: Medicine[];
+    try {
+      if (await this.isUsingSupabase()) {
+        medicines = await supabaseService.getCatalogMedicines();
+      } else {
+        medicines = inMemoryStore.getCatalogMedicines();
+      }
+    } catch (err: any) {
+      console.warn(`[CatalogValidation] Falling back to in-memory catalog: ${err.message}`);
+      medicines = inMemoryStore.getCatalogMedicines();
+    }
+
+    this.catalogMedicinesCache = medicines;
+    this.catalogMedicinesCacheTime = now;
+    console.log(`[CatalogValidation] Loaded ${medicines.length} catalog medicines in ${Date.now() - t0}ms`);
+    return medicines;
+  }
+
+  /**
+   * Fetch lightweight supplier catalog for OCR & bill validation.
+   * Uses cached suppliers if available within TTL.
+   */
+  public async getCatalogSuppliers(forceFresh = false): Promise<Supplier[]> {
+    const now = Date.now();
+    if (
+      !forceFresh &&
+      this.catalogSuppliersCache &&
+      now - this.catalogSuppliersCacheTime < PharmacyStore.CATALOG_CACHE_TTL_MS
+    ) {
+      return this.catalogSuppliersCache;
+    }
+
+    const t0 = Date.now();
+    let suppliers: Supplier[];
+    try {
+      if (await this.isUsingSupabase()) {
+        suppliers = await supabaseService.getCatalogSuppliers();
+      } else {
+        suppliers = inMemoryStore.getCatalogSuppliers();
+      }
+    } catch (err: any) {
+      console.warn(`[CatalogValidation] Falling back to in-memory suppliers: ${err.message}`);
+      suppliers = inMemoryStore.getCatalogSuppliers();
+    }
+
+    this.catalogSuppliersCache = suppliers;
+    this.catalogSuppliersCacheTime = now;
+    console.log(`[CatalogValidation] Loaded ${suppliers.length} suppliers in ${Date.now() - t0}ms`);
+    return suppliers;
   }
 
   // ---------------------------------------------------------------------------
@@ -431,6 +517,7 @@ export class PharmacyStore {
   // AI BILL INVENTORY INTAKE & TRANSACTIONAL SAVE
   // ---------------------------------------------------------------------------
   public async confirmBillPurchase(data: ConfirmBillInput): Promise<ConfirmBillResult> {
+    this.invalidateCatalogCache();
     if (await this.isUsingSupabase()) {
       return supabaseService.confirmBillPurchase(data);
     }

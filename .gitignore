@@ -24,6 +24,11 @@ coverage/
 # Keep example files
 !.env.example
 
+# Python & OCR Environment
+ocr-venv/
+__pycache__/
+*.pyc
+
 # IDE & OS
 .vscode/
 .idea/

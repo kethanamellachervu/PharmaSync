@@ -1248,6 +1248,14 @@ class InMemoryStore {
   }
 
   // --- Medicines CRUD ---
+  public getCatalogMedicines(): Medicine[] {
+    return [...this.medicines];
+  }
+
+  public getCatalogSuppliers(): Supplier[] {
+    return [...this.suppliers];
+  }
+
   public getAllMedicines(): MedicineWithBatches[] {
     return this.medicines.map((m) => this.enrichMedicine(m));
   }

@@ -50,6 +50,8 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
   // Scanning progress state
   const [scanStepIndex, setScanStepIndex] = useState(0);
   const [scanElapsedSeconds, setScanElapsedSeconds] = useState(0);
+  const [scanStatusMessage, setScanStatusMessage] = useState('');
+  const [isScanning, setIsScanning] = useState(false);
 
   // Intermediate session caching & extraction engine metadata
   const [scanId, setScanId] = useState<string | null>(null);
@@ -151,42 +153,163 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
 
   // Trigger Bill Scan
   const handleStartScan = async () => {
+    if (isScanning || stage === 'SCANNING') {
+      return;
+    }
+
     if (!selectedFile) {
       setErrorMessage('Please select a bill image or PDF to scan.');
       return;
     }
 
+    const currentScanId = scanId || `scan_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    setScanId(currentScanId);
+
+    setIsScanning(true);
     setErrorMessage(null);
     setStage('SCANNING');
     setScanStepIndex(0);
     setScanElapsedSeconds(0);
+    setScanStatusMessage('Initializing PaddleOCR Document Engine...');
 
     const elapsedTimer = setInterval(() => {
       setScanElapsedSeconds((prev) => prev + 1);
     }, 1000);
 
-    const stepsTimer = setInterval(() => {
-      setScanStepIndex((prev) => (prev < 3 ? prev + 1 : prev));
-    }, 800);
+    // Poll genuine backend scan progress every 400ms
+    let isTerminated = false;
+    const progressTimer = setInterval(async () => {
+      if (isTerminated) return;
+      try {
+        const progress = await apiService.getScanProgress(currentScanId);
+        if (progress && !isTerminated) {
+          if (progress.status === 'error') {
+            isTerminated = true;
+            clearInterval(progressTimer);
+            clearInterval(elapsedTimer);
+            setErrorMessage(progress.error || progress.message || 'Scanning failed.');
+            setStage('UPLOAD');
+            setIsScanning(false);
+            return;
+          }
+
+          if (progress.stepIndex !== undefined) {
+            setScanStepIndex((prev) => Math.max(prev, progress.stepIndex));
+          }
+          if (progress.message) {
+            setScanStatusMessage(progress.message);
+          }
+          if (progress.status === 'completed') {
+            setScanStepIndex(4);
+          }
+        }
+      } catch {
+        // Ignore transient progress poll errors while upload request is in-flight
+      }
+    }, 400);
 
     try {
-      // Pass cached scanId if retrying so backend reuses intermediate OCR results instantly!
-      const data: ExtractedBillData = await apiService.scanBill(selectedFile, scanId || undefined);
-      clearInterval(stepsTimer);
+      const data: ExtractedBillData = await apiService.scanBill(selectedFile, currentScanId);
+      isTerminated = true;
+      clearInterval(progressTimer);
       clearInterval(elapsedTimer);
-      populateExtractedData(data);
-      setStage('REVIEW');
+
+      // Explicitly mark all steps as complete (index 4) so Step 3 never spins or freezes
+      setScanStepIndex(4);
+      setScanStatusMessage('Scan & validation complete!');
+
+      // Brief transition delay so user visually sees all checks passed
+      setTimeout(() => {
+        populateExtractedData(data);
+        setStage('REVIEW');
+      }, 250);
     } catch (err: any) {
-      clearInterval(stepsTimer);
+      isTerminated = true;
+      clearInterval(progressTimer);
       clearInterval(elapsedTimer);
-      const isTimeout =
-        err.message && (err.message.includes('timeout') || err.message.includes('timed out'));
-      const errorMsg = isTimeout
-        ? 'Scanning timed out. Gemini took longer than expected to process your document. Please verify your connection and click "Retry AI Scan".'
+
+      const isAborted =
+        err.code === 'ECONNABORTED' ||
+        (err.message &&
+          (err.message.toLowerCase().includes('aborted') ||
+            err.message.toLowerCase().includes('network error') ||
+            err.message.toLowerCase().includes('failed to fetch')));
+      const errorMsg = isAborted
+        ? 'Scanning connection was interrupted. Please check your network connection and click "Retry Scan".'
         : err.message || 'Medical document scanning failed. Please review your file.';
       setErrorMessage(errorMsg);
-      // Keep selectedFile intact so user can retry immediately without re-selecting
       setStage('UPLOAD');
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  // Instant zero-config Sample Bill flow
+  const handleSampleBill = async () => {
+    if (isScanning || stage === 'SCANNING') return;
+    setErrorMessage(null);
+
+    const currentScanId = `scan_sample_${Date.now()}`;
+    setScanId(currentScanId);
+    setIsScanning(true);
+    setStage('SCANNING');
+    setScanStepIndex(0);
+    setScanElapsedSeconds(0);
+    setScanStatusMessage('Loading sample medical bill...');
+
+    const elapsedTimer = setInterval(() => {
+      setScanElapsedSeconds((prev) => prev + 1);
+    }, 1000);
+
+    const progressTimer = setInterval(async () => {
+      try {
+        const progress = await apiService.getScanProgress(currentScanId);
+        if (progress) {
+          if (progress.stepIndex !== undefined) {
+            setScanStepIndex((prev) => Math.max(prev, progress.stepIndex));
+          }
+          if (progress.message) {
+            setScanStatusMessage(progress.message);
+          }
+        }
+      } catch {
+        // Ignore
+      }
+    }, 250);
+
+    try {
+      const sampleBlob = new Blob(
+        [
+          'Apex Healthcare Distributors Pvt Ltd\nTax Invoice: INV-2026-6210\nDate: 2026-10-27\nTotal: 4350.00\nItems:\n1. Amoxicillin 500mg - 100 qty\n2. Azithromycin 500mg - 60 qty',
+        ],
+        { type: 'image/png' }
+      );
+      const sampleFile = new File([sampleBlob], 'sample_purchase_bill.png', {
+        type: 'image/png',
+      });
+
+      setSelectedFile(sampleFile);
+      setIsPdf(false);
+      setFilePreviewUrl(null);
+
+      const data: ExtractedBillData = await apiService.scanBill(sampleFile, currentScanId);
+      clearInterval(progressTimer);
+      clearInterval(elapsedTimer);
+
+      setScanStepIndex(4);
+      setScanStatusMessage('Sample bill verified!');
+
+      setTimeout(() => {
+        populateExtractedData(data);
+        setStage('REVIEW');
+      }, 200);
+    } catch (err: any) {
+      clearInterval(progressTimer);
+      clearInterval(elapsedTimer);
+      setErrorMessage(err.message || 'Sample bill scan failed.');
+      setStage('UPLOAD');
+    } finally {
+      setIsScanning(false);
     }
   };
 
@@ -217,6 +340,37 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
       const updated = [...prev];
       const item = { ...updated[index], [field]: value };
 
+      // Auto-update selling price with 15% markup when purchase price changes
+      if (field === 'purchasePrice') {
+        const p = Number(value);
+        if (!isNaN(p) && p > 0) {
+          const prevSelling = Number(updated[index].sellingPrice);
+          const prevPrice = Number(updated[index].purchasePrice);
+          if (!prevSelling || prevSelling === Math.round(prevPrice * 1.15 * 100) / 100) {
+            item.sellingPrice = Math.round(p * 1.15 * 100) / 100;
+          }
+        }
+      }
+
+      // Re-evaluate line amount arithmetic validation
+      const curQty = Number(item.quantity) || 0;
+      const curPrice = Number(item.purchasePrice) || 0;
+      const curLineAmt = item.lineAmount !== undefined && item.lineAmount !== null ? Number(item.lineAmount) : null;
+      if (curQty > 0 && curPrice > 0 && curLineAmt !== null) {
+        const expected = Math.round(curQty * curPrice * 100) / 100;
+        const diff = Math.abs(expected - curLineAmt);
+        if (diff > Math.max(0.05, 0.02 * curLineAmt)) {
+          item.needsVerification = true;
+          item.verificationReason = `Line amount mismatch: invoice ₹${curLineAmt.toFixed(2)}, calculated ₹${expected.toFixed(2)} (${curQty} × ₹${curPrice.toFixed(2)})`;
+        } else {
+          item.needsVerification = false;
+          item.verificationReason = null;
+        }
+      } else if (curQty > 0 && curPrice > 0 && !item.missingFields?.includes('quantity')) {
+        item.needsVerification = false;
+        item.verificationReason = null;
+      }
+
       // Re-evaluate missing fields
       const missing: string[] = [];
       if (!item.batchNumber?.trim()) missing.push('batchNumber');
@@ -228,7 +382,9 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
         missing.push('purchasePrice');
       }
       item.missingFields = missing;
-      item.confidence = missing.length === 0 ? 'high' : missing.length === 1 ? 'medium' : 'low';
+      item.confidence = (item.needsVerification || missing.length > 0)
+        ? (missing.length >= 2 ? 'low' : 'medium')
+        : 'high';
 
       updated[index] = item;
       return updated;
@@ -252,7 +408,7 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
       batchNumber: `BATCH-${Date.now().toString().slice(-4)}`,
       quantity: 10,
       purchasePrice: 10,
-      sellingPrice: 15,
+      sellingPrice: 11.5,
       expiryDate: defaultExpiry,
       category: 'General',
       unit: 'tablets',
@@ -287,7 +443,7 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
         batchNumber: it.batchNumber!.trim().toUpperCase(),
         quantity: Math.round(Number(it.quantity)),
         purchasePrice: Number(it.purchasePrice),
-        sellingPrice: Number(it.sellingPrice) || Math.round(Number(it.purchasePrice) * 1.3 * 100) / 100,
+        sellingPrice: Number(it.sellingPrice) || Math.round(Number(it.purchasePrice) * 1.15 * 100) / 100,
         mfgDate: it.mfgDate || undefined,
         expiryDate: it.expiryDate!,
       }));
@@ -418,9 +574,14 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
                 <button
                   type="button"
                   onClick={handleStartScan}
-                  className="px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded-md shadow-xs transition"
+                  disabled={isScanning}
+                  className={`px-3 py-1 font-semibold rounded-md shadow-xs transition ${
+                    isScanning
+                      ? 'bg-amber-400 cursor-not-allowed text-white'
+                      : 'bg-amber-600 hover:bg-amber-500 text-white'
+                  }`}
                 >
-                  Retry Now
+                  {isScanning ? 'Scanning...' : 'Retry Now'}
                 </button>
               )}
               <button
@@ -513,19 +674,37 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
             </div>
 
             {/* Actions */}
-            <div className="mt-6 flex flex-wrap items-center justify-center gap-4">
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
               <button
                 type="button"
                 onClick={handleStartScan}
-                disabled={!selectedFile}
+                disabled={!selectedFile || isScanning}
                 className={`px-6 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 shadow-md transition ${
-                  selectedFile
+                  selectedFile && !isScanning
                     ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-500/25'
                     : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
                 }`}
               >
                 <Sparkles className="w-4 h-4" />
-                {errorMessage && selectedFile ? 'Retry AI Scan' : 'Start AI Scan'}
+                {isScanning
+                  ? 'Analyzing Bill...'
+                  : errorMessage && selectedFile
+                  ? 'Retry AI Scan'
+                  : 'Start AI Scan'}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSampleBill}
+                disabled={isScanning}
+                className={`px-4 py-2.5 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 transition flex items-center gap-1.5 ${
+                  isScanning
+                    ? 'text-slate-400 cursor-not-allowed'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                Try Sample Purchase Bill
               </button>
             </div>
           </div>
@@ -542,62 +721,61 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
             </div>
 
             <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-1">
-              Analyzing Purchase Bill with Gemini AI...
+              Analyzing your purchase bill with PaddleOCR...
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mb-4">
               Extracting supplier details, invoice metadata, medicine lines, batch numbers, and expiry dates
             </p>
 
-            {/* Live elapsed time badge & Retry status */}
+            {/* Live elapsed time badge & pipeline status */}
             <div className="flex flex-col items-center gap-1.5 mb-4">
               <div
                 className={`flex items-center gap-2 px-4 py-1.5 rounded-full border text-xs font-semibold transition-all ${
-                  scanElapsedSeconds >= 14
+                  scanElapsedSeconds >= 60
                     ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200'
                     : 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
                 }`}
               >
                 <RefreshCw
                   className={`w-3.5 h-3.5 animate-spin ${
-                    scanElapsedSeconds >= 14 ? 'text-amber-600' : 'text-emerald-600'
+                    scanElapsedSeconds >= 60 ? 'text-amber-600' : 'text-emerald-600'
                   }`}
                 />
                 <span>
-                  Elapsed: {scanElapsedSeconds}s •{' '}
-                  {scanElapsedSeconds >= 24
-                    ? 'Exponential backoff active (retrying Google Gemini)...'
-                    : scanElapsedSeconds >= 14
-                    ? 'High server demand detected — retrying automatically...'
-                    : 'Gemini 3.8 Flash Vision processing (typically 8–25s)'}
+                  Elapsed: {scanElapsedSeconds}s • Running deep learning PaddleOCR analysis
                 </span>
               </div>
-              {scanElapsedSeconds >= 14 && (
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 text-center max-w-sm">
-                  Google servers are busy. Automatic retry with exponential backoff (2s, 4s, 8s) is running to prevent dropped uploads.
-                </p>
-              )}
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 text-center max-w-sm">
+                Multi-page or high-resolution bills process continuously until fully extracted.
+              </p>
             </div>
 
-            {/* Smooth visual progress bar */}
+            {/* Stage-driven visual progress bar */}
             <div className="w-full max-w-md h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden mb-5">
               <div
-                className={`h-full transition-all duration-500 ${
-                  scanElapsedSeconds >= 14
-                    ? 'bg-gradient-to-r from-amber-500 to-emerald-500'
-                    : 'bg-gradient-to-r from-emerald-500 to-teal-400'
-                }`}
+                className="h-full bg-gradient-to-r from-emerald-500 via-teal-400 to-indigo-500 transition-all duration-500"
                 style={{
-                  width: `${Math.min(94, Math.max(12, scanElapsedSeconds * 3.5 + 15))}%`,
+                  width: `${
+                    scanStepIndex === 0
+                      ? Math.min(25, 12 + (scanElapsedSeconds % 12))
+                      : scanStepIndex === 1
+                      ? Math.min(70, 25 + Math.min(45, scanElapsedSeconds * 0.75))
+                      : scanStepIndex === 2
+                      ? 80
+                      : scanStepIndex === 3
+                      ? 92
+                      : 100
+                  }%`,
                 }}
               />
             </div>
 
             <div className="w-full max-w-md space-y-2.5 text-left">
               {[
-                'Document preparation & orientation validation...',
-                'Extracting text via local Tesseract OCR & PDF engine...',
-                'AI field interpretation & medical terminology mapping...',
-                'Validating batches, dates & medicine catalog...',
+                'Document preparation & PDF page rasterization...',
+                'Detecting text & bounding boxes with PaddleOCR...',
+                'Deterministic invoice parser & batch/expiry extraction...',
+                'Validating medicines against pharmacy catalog & database...',
               ].map((step, idx) => (
                 <div
                   key={idx}
@@ -618,6 +796,12 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
                 </div>
               ))}
             </div>
+
+            {scanStatusMessage && (
+              <p className="text-[11px] text-emerald-700 dark:text-emerald-300 font-medium mt-3 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-1 rounded-full border border-emerald-200 dark:border-emerald-800 animate-pulse">
+                {scanStatusMessage}
+              </p>
+            )}
           </div>
         )}
 
@@ -632,11 +816,11 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
                 {aiProvider && (
                   <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
                     <Sparkles className="w-3 h-3 text-emerald-500" />
-                    {aiProvider === 'gemini-text-ocr'
-                      ? 'Local OCR + Gemini Field Interpreter'
-                      : aiProvider === 'deterministic-medical-parser'
-                      ? 'Local OCR + Medical Layout Parser'
-                      : 'Gemini AI Vision'}
+                    {aiProvider === 'paddleocr-local'
+                      ? 'PaddleOCR Local Document Engine'
+                      : aiProvider === 'sample-demo-bill'
+                      ? 'Verified Sample Purchase Bill'
+                      : 'PaddleOCR Local Engine'}
                   </span>
                 )}
                 {scanId && (
@@ -805,6 +989,15 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
                                   <Plus className="w-3 h-3" /> Will create new medicine
                                 </span>
                               )}
+                              {item.needsVerification && (
+                                <span
+                                  className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950 px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-800"
+                                  title={item.verificationReason || 'Line requires review'}
+                                >
+                                  <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
+                                  <span>Verify: {item.verificationReason || 'Please check quantity & rate'}</span>
+                                </span>
+                              )}
                               <span
                                 className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${
                                   item.confidence === 'high'
@@ -875,8 +1068,17 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
                               onChange={(e) =>
                                 handleItemFieldChange(idx, 'quantity', parseInt(e.target.value, 10) || 0)
                               }
-                              className="w-full px-2 py-1.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-medium text-slate-900 dark:text-slate-100 text-center focus:outline-none"
+                              className={`w-full px-2 py-1.5 rounded bg-white dark:bg-slate-900 border font-medium text-slate-900 dark:text-slate-100 text-center focus:outline-none ${
+                                !item.quantity || Number(item.quantity) <= 0
+                                  ? 'border-amber-400 bg-amber-50/30 dark:bg-amber-950/20 text-amber-900 dark:text-amber-100'
+                                  : 'border-slate-200 dark:border-slate-700'
+                              }`}
                             />
+                            {(!item.quantity || Number(item.quantity) <= 0) && (
+                              <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400 flex items-center gap-1 mt-0.5 justify-center">
+                                <AlertTriangle className="w-3 h-3" /> Qty required
+                              </span>
+                            )}
                           </td>
 
                           {/* Purchase Price */}
@@ -928,7 +1130,12 @@ export const BillScanModal: React.FC<BillScanModalProps> = ({
 
                           {/* Line Subtotal */}
                           <td className="p-3 text-right font-bold text-slate-800 dark:text-slate-100">
-                            ₹{((Number(item.quantity) || 0) * (Number(item.purchasePrice) || 0)).toFixed(2)}
+                            <div>₹{((Number(item.quantity) || 0) * (Number(item.purchasePrice) || 0)).toFixed(2)}</div>
+                            {item.lineAmount && item.needsVerification && (
+                              <div className="text-[10px] font-normal text-amber-600 dark:text-amber-400" title="Extracted line amount from invoice">
+                                Inv: ₹{Number(item.lineAmount).toFixed(2)}
+                              </div>
+                            )}
                           </td>
 
                           {/* Remove button */}

@@ -1,6 +1,8 @@
+import crypto from 'crypto';
 import { Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import { billOcrService } from '../services/billOcrService.js';
+import { scanProgressService } from '../services/scanProgressService.js';
 import { pharmacyStore } from '../services/pharmacyStore.js';
 import { envConfig } from '../config/env.js';
 import { ConfirmBillInput } from '../types/pharmacy.js';
@@ -19,12 +21,22 @@ const upload = multer({
   },
 });
 
+// In-flight active bill scans tracker (prevents duplicate submissions while processing)
+const activeScans = new Set<string>();
+
 export const billUploadMiddleware = upload.single('billFile');
 
 /**
  * Scan an uploaded purchase bill (image or PDF) and extract structured medicine inventory data.
+ * Supports up to 5 minutes (300s) timeout with duplicate submission prevention.
  */
 export async function scanBill(req: Request, res: Response, next: NextFunction): Promise<void> {
+  // Disable socket timeouts (0 = no timeout) to allow long-running OCR pipelines to complete naturally
+  req.setTimeout(0);
+  res.setTimeout(0);
+
+  let fileHash: string | null = null;
+
   try {
     let fileBuffer: Buffer | null = null;
     let mimeType = 'image/jpeg';
@@ -58,20 +70,78 @@ export async function scanBill(req: Request, res: Response, next: NextFunction):
       return;
     }
 
-    const extractedData = await billOcrService.extractBillData(fileBuffer, mimeType, fileName);
+    // Generate unique content fingerprint to prevent concurrent duplicate processing
+    fileHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+
+    if (activeScans.has(fileHash)) {
+      res.status(409).json({
+        status: 'error',
+        message: 'A bill scan for this document is already in progress. Please wait for it to complete.',
+      });
+      return;
+    }
+
+    // Mark as in-flight
+    activeScans.add(fileHash);
+
+    const clientScanId =
+      (req.body && req.body.scanId ? String(req.body.scanId).trim() : null) ||
+      (req.headers['x-scan-id'] ? String(req.headers['x-scan-id']).trim() : null) ||
+      `scan_${Date.now()}_${fileHash.substring(0, 8)}`;
+
+    const extractedData = await billOcrService.extractBillData(fileBuffer, mimeType, fileName, clientScanId);
 
     res.status(200).json({
       status: 'success',
       message: `Bill scanned successfully. Extracted ${extractedData.items.length} medicine item(s).`,
-      data: extractedData,
+      data: {
+        ...extractedData,
+        scanId: clientScanId,
+      },
     });
   } catch (error: unknown) {
     const err = error as Error;
-    res.status(422).json({
+    const isTimeout =
+      err.message?.toLowerCase().includes('timed out') ||
+      err.message?.toLowerCase().includes('timeout') ||
+      err.message?.toLowerCase().includes('300 seconds') ||
+      err.message?.toLowerCase().includes('5 minute') ||
+      err.message?.toLowerCase().includes('deadline exceeded');
+
+    res.status(isTimeout ? 504 : 422).json({
       status: 'error',
       message: err.message || 'Failed to scan and extract data from bill.',
     });
+  } finally {
+    if (fileHash) {
+      activeScans.delete(fileHash);
+    }
   }
+}
+
+/**
+ * Returns genuine live progress of an active or recent bill scan session.
+ */
+export async function getScanProgress(req: Request, res: Response): Promise<void> {
+  const scanId = req.params.scanId;
+  if (!scanId) {
+    res.status(400).json({ status: 'error', message: 'Scan ID is required.' });
+    return;
+  }
+
+  const progress = scanProgressService.getProgress(scanId);
+  if (!progress) {
+    res.status(404).json({
+      status: 'error',
+      message: 'No active scan progress found for this ID.',
+    });
+    return;
+  }
+
+  res.status(200).json({
+    status: 'success',
+    data: progress,
+  });
 }
 
 /**
@@ -129,14 +199,14 @@ export async function getOcrStatus(_req: Request, res: Response): Promise<void> 
   res.status(200).json({
     status: 'success',
     data: {
-      isConfigured: envConfig.isAiOcrConfigured,
-      geminiConfigured: Boolean(envConfig.geminiApiKey),
-      openaiConfigured: Boolean(envConfig.openaiApiKey),
+      isConfigured: true,
+      ocrEngine: 'PaddleOCR (Local Python Engine)',
+      paddleOcrConfigured: true,
+      geminiConfigured: false,
+      openaiConfigured: false,
       supportedFormats: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
       maxFileSizeMb: 15,
-      recommendation: envConfig.isAiOcrConfigured
-        ? 'AI Vision Document OCR is active and ready.'
-        : 'To enable AI Vision for real-world bill camera photos and scanned PDFs, add GEMINI_API_KEY to backend/.env. Built-in testing parser is available.',
+      recommendation: 'Local PaddleOCR Document Engine is active and ready (zero external AI dependencies).',
     },
   });
 }

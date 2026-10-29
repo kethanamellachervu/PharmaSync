@@ -186,6 +186,10 @@ export interface ExtractedBillItem {
   quantity?: number | null;
   purchasePrice?: number | null;
   sellingPrice?: number | null;
+  lineAmount?: number | null;
+  needsVerification?: boolean;
+  verificationReason?: string | null;
+  sNo?: number | null;
   mfgDate?: string | null;
   expiryDate?: string | null;
   category?: string;
@@ -195,6 +199,7 @@ export interface ExtractedBillItem {
 }
 
 export interface ExtractedBillData {
+  scanId?: string;
   supplierName?: string | null;
   matchedSupplierId?: string | null;
   invoiceNumber?: string | null;

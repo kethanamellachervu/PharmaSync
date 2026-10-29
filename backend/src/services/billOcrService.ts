@@ -1,126 +1,97 @@
-import { GoogleGenAI } from '@google/genai';
-import { envConfig } from '../config/env.js';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import { execFile, spawn } from 'child_process';
+import { promisify } from 'util';
 import { pharmacyStore } from './pharmacyStore.js';
+import { scanProgressService } from './scanProgressService.js';
 import {
   ExtractedBillData,
   ExtractedBillItem,
+  Medicine,
   MedicineWithBatches,
   Supplier,
 } from '../types/pharmacy.js';
 
+const execFileAsync = promisify(execFile);
+
+export interface IndexedMedicine {
+  medicine: Medicine | MedicineWithBatches;
+  cleanName: string;
+  cleanGeneric: string | null;
+}
+
 interface RawExtractedItem {
-  name: string;
+  id?: string;
+  name?: string;
+  rawName?: string;
   genericName?: string;
   category?: string;
   unit?: string;
-  batchNumber?: string;
-  quantity?: number;
-  purchasePrice?: number;
-  sellingPrice?: number;
-  mfgDate?: string;
-  expiryDate?: string;
+  batchNumber?: string | null;
+  quantity?: number | null;
+  purchasePrice?: number | null;
+  sellingPrice?: number | null;
+  lineAmount?: number | null;
+  needsVerification?: boolean;
+  verificationReason?: string | null;
+  sNo?: number | null;
+  mfgDate?: string | null;
+  expiryDate?: string | null;
+  confidence?: 'high' | 'medium' | 'low';
+  missingFields?: string[];
 }
 
 interface RawExtractedBill {
-  supplierName?: string;
-  invoiceNumber?: string;
-  invoiceDate?: string;
-  totalAmount?: number;
+  supplierName?: string | null;
+  invoiceNumber?: string | null;
+  invoiceDate?: string | null;
+  totalAmount?: number | null;
   items: RawExtractedItem[];
+  confidence?: 'high' | 'medium' | 'low';
+  aiProviderUsed?: string;
+  warnings?: string[];
 }
 
 /**
- * Detect permanent errors that should NOT be retried (e.g. invalid key, model deprecation, permission)
+ * Locate the local Python executable inside the isolated `ocr-venv` virtual environment.
  */
-export function isPermanentGeminiError(err: any): boolean {
-  if (!err) return false;
-  const status = err.status || err.code || err.statusCode;
-  if (status === 400 || status === 401 || status === 403 || status === 404) return true;
+export function getPythonExecutablePath(): string {
+  const projectRoot = path.resolve(process.cwd(), '..');
+  const candidates = [
+    path.join(projectRoot, 'ocr-venv', 'Scripts', 'python.exe'),
+    path.join(process.cwd(), 'ocr-venv', 'Scripts', 'python.exe'),
+    path.join(projectRoot, 'ocr-venv', 'bin', 'python'),
+    path.join(process.cwd(), 'ocr-venv', 'bin', 'python'),
+  ];
 
-  const msg = (err.message || '').toLowerCase();
-  return (
-    msg.includes('api_key_invalid') ||
-    msg.includes('api key not valid') ||
-    msg.includes('permission_denied') ||
-    msg.includes('not_found') ||
-    msg.includes('unsupported model') ||
-    msg.includes('invalid_argument') ||
-    msg.includes('no longer available')
-  );
-}
-
-/**
- * Detect transient/temporary errors that SHOULD be retried (503, 429, 500, 502, 504, high demand)
- */
-export function isTransientGeminiError(err: any): boolean {
-  if (!err) return false;
-  if (isPermanentGeminiError(err)) return false;
-
-  const status = err.status || err.code || err.statusCode;
-  if (status === 503 || status === 429 || status === 500 || status === 502 || status === 504) return true;
-
-  const msg = (err.message || '').toLowerCase();
-  return (
-    msg.includes('503') ||
-    msg.includes('429') ||
-    msg.includes('500') ||
-    msg.includes('502') ||
-    msg.includes('504') ||
-    msg.includes('unavailable') ||
-    msg.includes('high demand') ||
-    msg.includes('resource_exhausted') ||
-    msg.includes('rate limit') ||
-    msg.includes('overloaded') ||
-    msg.includes('deadline exceeded') ||
-    msg.includes('econnreset') ||
-    msg.includes('etimedout') ||
-    msg.includes('timeout')
-  );
-}
-
-/**
- * Format a clear, human-friendly error message for the frontend UI
- */
-export function formatGeminiErrorMessage(err: any): string {
-  if (!err) return 'Gemini AI document extraction failed.';
-
-  const rawMsg = err.message || '';
-  let extractedDetail = rawMsg;
-  try {
-    const jsonMatch = rawMsg.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (parsed.error?.message) {
-        extractedDetail = parsed.error.message;
-      }
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
     }
-  } catch {
-    // Keep rawMsg
   }
 
-  if (isTransientGeminiError(err)) {
-    return 'Gemini AI is temporarily experiencing high demand (503 UNAVAILABLE). Google servers are busy. Please wait a moment and click "Retry AI Scan", or test with "Try Sample Purchase Bill".';
-  }
+  // Fallback if virtualenv path is in standard location
+  return process.platform === 'win32' ? 'python.exe' : 'python3';
+}
 
-  if (isPermanentGeminiError(err)) {
-    return `Gemini AI configuration error: ${extractedDetail}. Please check your GEMINI_API_KEY in backend/.env.`;
+/**
+ * Locate the project root containing `ocr_service/`
+ */
+export function getOcrProjectRoot(): string {
+  const projectRoot = path.resolve(process.cwd(), '..');
+  if (fs.existsSync(path.join(projectRoot, 'ocr_service', 'engine.py'))) {
+    return projectRoot;
   }
-
-  return `Gemini AI extraction error: ${extractedDetail}. Please verify your purchase bill image/PDF and try again.`;
+  if (fs.existsSync(path.join(process.cwd(), 'ocr_service', 'engine.py'))) {
+    return process.cwd();
+  }
+  return projectRoot;
 }
 
 export class BillOcrService {
-  private geminiClient: GoogleGenAI | null = null;
-
-  constructor() {
-    if (envConfig.geminiApiKey) {
-      try {
-        this.geminiClient = new GoogleGenAI({ apiKey: envConfig.geminiApiKey });
-      } catch (err: any) {
-        console.warn('[BillOcrService] Could not initialize Gemini client:', err.message);
-      }
-    }
-  }
+  // 0 = No timeout limit; allows long-running high-resolution and multi-page invoices to complete naturally
+  public static readonly OCR_TIMEOUT_MS = 0;
 
   /**
    * Main entry point to extract structured invoice data from an uploaded bill (image or PDF).
@@ -128,101 +99,187 @@ export class BillOcrService {
   public async extractBillData(
     fileBuffer: Buffer,
     mimeType: string,
-    fileName = 'bill'
+    fileName = 'bill',
+    scanId?: string
   ): Promise<ExtractedBillData> {
+    const tScanStart = Date.now();
     const warnings: string[] = [];
     let rawBill: RawExtractedBill | null = null;
-    let aiProviderUsed = 'none';
-    let confidence: 'high' | 'medium' | 'low' = 'low';
+    let aiProviderUsed = 'paddleocr-local';
+    let overallConfidence: 'high' | 'medium' | 'low' = 'low';
 
     const normalizedMime = this.normalizeMimeType(mimeType, fileName);
     const isSampleRequest = fileName.toLowerCase().includes('sample');
 
+    if (scanId) {
+      scanProgressService.initProgress(scanId, `Starting analysis of "${fileName}"...`);
+    }
+
     // 1. Explicit Sample Bill request for zero-config demonstration
     if (isSampleRequest) {
+      if (scanId) {
+        scanProgressService.setStep(scanId, 2, 'Processing deterministic sample invoice lines...');
+      }
       rawBill = this.extractWithRuleBasedParser(fileBuffer, fileName);
       aiProviderUsed = 'sample-demo-bill';
-      confidence = 'medium';
+      overallConfidence = 'high';
       warnings.push('Displaying verified sample bill dataset for testing and review.');
     } else {
-      // 2. Real bill upload: Use Gemini Vision (gemini-3.8-flash)
-      if (envConfig.geminiApiKey) {
-        try {
-          rawBill = await this.extractWithGemini(fileBuffer, normalizedMime);
-          aiProviderUsed = 'gemini-3.8-flash';
-          confidence = 'high';
-        } catch (err: any) {
-          console.error('[BillOcrService] Gemini extraction failed:', err.message);
-          throw new Error(formatGeminiErrorMessage(err));
+      // 2. Real bill upload: Use local PaddleOCR Python engine
+      try {
+        if (scanId) {
+          scanProgressService.setStep(scanId, 0, 'Document preparation & PDF page rasterization...');
         }
-      } else if (envConfig.openaiApiKey) {
-        // Fallback to OpenAI Vision if Gemini is not configured
-        try {
-          rawBill = await this.extractWithOpenAI(fileBuffer, normalizedMime);
-          aiProviderUsed = 'openai-gpt-4o-mini';
-          confidence = 'high';
-        } catch (err: any) {
-          console.error('[BillOcrService] OpenAI extraction failed:', err.message);
-          throw new Error(`OpenAI AI extraction failed: ${err.message}`);
+        const ocrT0 = Date.now();
+        rawBill = await this.extractWithPaddleOCR(fileBuffer, fileName, normalizedMime, scanId);
+        console.log(`[BillScanTiming] PaddleOCR + Python engine execution took ${Date.now() - ocrT0}ms`);
+        aiProviderUsed = rawBill.aiProviderUsed || 'paddleocr-local';
+        overallConfidence = rawBill.confidence || 'medium';
+        if (rawBill.warnings && rawBill.warnings.length > 0) {
+          warnings.push(...rawBill.warnings);
         }
-      } else {
-        throw new Error(
-          'No AI Vision provider is configured. Please add GEMINI_API_KEY to backend/.env to scan live purchase bills, or click "Try Sample Purchase Bill" for demonstration.'
-        );
+      } catch (err: any) {
+        console.error('[BillOcrService] PaddleOCR extraction failed:', err.message);
+        if (scanId) {
+          scanProgressService.setError(scanId, `Local OCR document analysis failed: ${err.message}`);
+        }
+        throw new Error(`Local OCR document analysis failed: ${err.message}`);
       }
     }
 
-    // 4. Enrich & Match items against Supabase / Store medicines and suppliers
+    if (!rawBill) {
+      if (scanId) {
+        scanProgressService.setError(scanId, 'Unable to extract invoice fields from the provided document.');
+      }
+      throw new Error('Unable to extract invoice fields from the provided document.');
+    }
+
+    if (scanId) {
+      scanProgressService.setStep(
+        scanId,
+        3,
+        `Validating ${rawBill.items?.length || 0} medicine line(s) against pharmacy catalog & database...`
+      );
+    }
+
+    // 3. Match items and supplier against Supabase / Pharmacy Store catalog
+    const tValidation0 = Date.now();
+    const tDbFetch0 = Date.now();
     const [existingMedicines, existingSuppliers] = await Promise.all([
-      pharmacyStore.getAllMedicines().catch(() => [] as MedicineWithBatches[]),
-      pharmacyStore.getAllSuppliers().catch(() => [] as Supplier[]),
+      pharmacyStore.getCatalogMedicines().catch(() => [] as Medicine[]),
+      pharmacyStore.getCatalogSuppliers().catch(() => [] as Supplier[]),
     ]);
+    const dbFetchDuration = Date.now() - tDbFetch0;
+    console.log(
+      `[CatalogValidation] Fetched catalog data in ${dbFetchDuration}ms (${existingMedicines.length} medicines, ${existingSuppliers.length} suppliers)`
+    );
 
-    const matchedSupplier = this.matchSupplier(rawBill.supplierName, existingSuppliers);
+    const tSupp0 = performance.now();
+    const matchedSupplier = this.matchSupplier(rawBill.supplierName || undefined, existingSuppliers);
+    console.log(
+      `[CatalogValidation] Supplier "${rawBill.supplierName}": ${
+        matchedSupplier ? `Matched -> "${matchedSupplier.name}" (ID: ${matchedSupplier.id})` : 'No Match'
+      } in ${(performance.now() - tSupp0).toFixed(3)}ms`
+    );
 
+    // Pre-index medicines once for O(1) exact matching and fast string comparisons
+    const tIndex0 = performance.now();
+    const { exactMap, items: indexedMeds } = this.buildCatalogIndex(existingMedicines);
+    console.log(
+      `[CatalogValidation] Pre-indexed ${existingMedicines.length} catalog medicines in ${(
+        performance.now() - tIndex0
+      ).toFixed(2)}ms`
+    );
+
+    const tMatchingAll0 = performance.now();
+    let matchedCount = 0;
     const enrichedItems: ExtractedBillItem[] = (rawBill.items || []).map((item, index) => {
-      const match = this.matchMedicine(item.name, existingMedicines);
-      const missingFields: string[] = [];
+      const medicineName = item.name || item.rawName || 'Unnamed Medicine';
+      const tItemMatch0 = performance.now();
+      const match = this.matchIndexedMedicine(medicineName, exactMap, indexedMeds);
+      const itemDuration = (performance.now() - tItemMatch0).toFixed(3);
 
+      if (match) {
+        matchedCount++;
+        console.log(
+          `[CatalogValidation] Item ${index + 1} "${medicineName}": Matched -> "${match.name}" (ID: ${match.id}) in ${itemDuration}ms`
+        );
+      } else {
+        console.log(
+          `[CatalogValidation] Item ${index + 1} "${medicineName}": No catalog match (New item) in ${itemDuration}ms`
+        );
+      }
+
+      const missingFields: string[] = [];
       const cleanBatch = item.batchNumber ? item.batchNumber.trim().toUpperCase() : null;
       const cleanExpiry = this.normalizeDate(item.expiryDate);
       const cleanMfg = this.normalizeDate(item.mfgDate);
       const qty = item.quantity && Number(item.quantity) > 0 ? Math.round(Number(item.quantity)) : null;
       const price = item.purchasePrice !== undefined && item.purchasePrice !== null ? Number(item.purchasePrice) : null;
+      const lineAmt = item.lineAmount !== undefined && item.lineAmount !== null ? Number(item.lineAmount) : null;
       const selling = item.sellingPrice !== undefined && item.sellingPrice !== null
         ? Number(item.sellingPrice)
         : match
         ? match.sellingPrice
         : price
-        ? Math.round(price * 1.3 * 100) / 100
+        ? Math.round(price * 1.15 * 100) / 100
         : null;
+
+      // Arithmetic Validation: quantity * purchasePrice ≈ lineAmount
+      let needsVerification = item.needsVerification || false;
+      let verificationReason = item.verificationReason || null;
+      if (qty && price !== null && lineAmt !== null) {
+        const expected = Math.round(qty * price * 100) / 100;
+        const diff = Math.abs(expected - lineAmt);
+        if (diff > Math.max(0.05, 0.02 * lineAmt)) {
+          needsVerification = true;
+          verificationReason = `Line amount mismatch: extracted ₹${lineAmt.toFixed(2)}, calculated ₹${expected.toFixed(2)} (${qty} × ₹${price.toFixed(2)})`;
+        }
+      } else if (!qty) {
+        needsVerification = true;
+        if (!verificationReason) verificationReason = 'Quantity missing or unverified';
+      }
 
       if (!cleanBatch) missingFields.push('batchNumber');
       if (!cleanExpiry) missingFields.push('expiryDate');
       if (!qty) missingFields.push('quantity');
       if (price === null) missingFields.push('purchasePrice');
 
-      let itemConfidence: 'high' | 'medium' | 'low' = 'high';
+      let itemConfidence: 'high' | 'medium' | 'low' = item.confidence || 'high';
+      if (needsVerification && itemConfidence === 'high') {
+        itemConfidence = 'medium';
+      }
       if (missingFields.length >= 2) itemConfidence = 'low';
       else if (missingFields.length === 1) itemConfidence = 'medium';
 
       return {
-        id: `extracted-item-${index + 1}-${Date.now()}`,
-        rawName: item.name || 'Unnamed Medicine',
+        id: item.id || `extracted-item-${index + 1}-${Date.now()}`,
+        rawName: medicineName,
         matchedMedicineId: match ? match.id : null,
         matchedMedicineName: match ? match.name : null,
         batchNumber: cleanBatch,
         quantity: qty,
         purchasePrice: price,
         sellingPrice: selling,
+        lineAmount: lineAmt,
+        needsVerification,
+        verificationReason,
+        sNo: item.sNo || null,
         mfgDate: cleanMfg,
         expiryDate: cleanExpiry,
-        category: match ? match.category : item.category || this.inferCategory(item.name),
-        unit: match ? match.unit : item.unit || 'tablets',
+        category: match ? match.category : item.category || this.inferCategory(medicineName),
+        unit: item.unit || (match ? match.unit : 'tablets'),
         confidence: itemConfidence,
         missingFields,
       };
     });
+
+    const totalMatchingDuration = (performance.now() - tMatchingAll0).toFixed(2);
+    const totalValidationDuration = Date.now() - tValidation0;
+    console.log(
+      `[CatalogValidation] Medicine matching complete: ${matchedCount}/${enrichedItems.length} matched in ${totalMatchingDuration}ms`
+    );
+    console.log(`[CatalogValidation] Total validation step took ${totalValidationDuration}ms`);
 
     // Compute or verify total amount
     const computedTotal = enrichedItems.reduce(
@@ -230,6 +287,21 @@ export class BillOcrService {
       0
     );
     const finalTotal = rawBill.totalAmount ? Number(rawBill.totalAmount) : Math.round(computedTotal * 100) / 100;
+
+    const totalPipelineDuration = Date.now() - tScanStart;
+    console.log(`[BillScanTiming] Complete bill scanning pipeline took ${totalPipelineDuration}ms (OCR + Validation)`);
+
+    if (scanId) {
+      scanProgressService.setStep(
+        scanId,
+        4,
+        `Validation complete! ${matchedCount}/${enrichedItems.length} medicines verified against database.`,
+        {
+          medicinesExtracted: enrichedItems.length,
+          totalTimeMs: totalPipelineDuration,
+        }
+      );
+    }
 
     return {
       supplierName: rawBill.supplierName || (matchedSupplier ? matchedSupplier.name : null),
@@ -239,174 +311,178 @@ export class BillOcrService {
       totalAmount: finalTotal,
       items: enrichedItems,
       aiProviderUsed,
-      confidence,
+      confidence: overallConfidence,
       warnings,
+      scanId,
     };
   }
 
   /**
-   * Google Gemini Vision document extraction
+   * Invoke local PaddleOCR Python service via `ocr-venv`
    */
-  private async extractWithGemini(fileBuffer: Buffer, mimeType: string): Promise<RawExtractedBill> {
-    const ai = this.geminiClient || new GoogleGenAI({ apiKey: envConfig.geminiApiKey! });
-    const base64Data = fileBuffer.toString('base64');
-
-    const prompt = `You are an expert pharmaceutical document AI for pharmacy inventory management.
-Carefully examine this medicine purchase bill / tax invoice / stock delivery receipt.
-Extract the following information in strict, valid JSON format only (no markdown quotes, no explanations):
-
-{
-  "supplierName": "Full name of the pharmaceutical distributor, wholesaler, or manufacturer",
-  "invoiceNumber": "Exact invoice / bill / challan number",
-  "invoiceDate": "YYYY-MM-DD or null if not found",
-  "totalAmount": 1234.56,
-  "items": [
-    {
-      "name": "Full brand name and dosage strength, e.g. Paracetamol 500mg Tablets",
-      "genericName": "Generic active ingredient if mentioned, e.g. Paracetamol",
-      "category": "One of: Analgesics, Antibiotics, Antidiabetics, Antihistamines, Cardiovascular, Gastrointestinal, Respiratory, Vitamins, General",
-      "unit": "One of: tablets, capsules, bottles, strips, tubes, vials",
-      "batchNumber": "Exact batch / lot number, or null if NOT present",
-      "quantity": 50,
-      "purchasePrice": 12.50,
-      "sellingPrice": 18.00,
-      "mfgDate": "YYYY-MM-DD or null if absent",
-      "expiryDate": "YYYY-MM-DD or null if absent"
+  private async extractWithPaddleOCR(
+    fileBuffer: Buffer,
+    fileName: string,
+    mimeType: string,
+    scanId?: string
+  ): Promise<RawExtractedBill> {
+    if (scanId) {
+      scanProgressService.setStep(scanId, 1, 'Running PaddleOCR neural text detection & recognition on document...');
     }
-  ]
-}
+    const pythonExe = getPythonExecutablePath();
+    const projectRoot = getOcrProjectRoot();
 
-CRITICAL PHARMACEUTICAL RULES:
-1. NEVER invent, hallucinate, or guess batch numbers or expiry dates. If absent or illegible on the invoice, return null.
-2. For dates formatted as MM/YY (e.g. 08/26 or Aug-26), convert to the last day of that month: "2026-08-31".
-3. Extract ALL medicine rows from the invoice table.
-4. Ensure quantity is a positive integer representing total units received.
-5. purchasePrice is the cost per unit to the pharmacy before or after tax.
-6. Return ONLY the JSON object.`;
+    // Determine temporary file extension
+    let ext = path.extname(fileName).toLowerCase();
+    if (!ext || ext.length <= 1) {
+      if (mimeType.includes('pdf')) ext = '.pdf';
+      else if (mimeType.includes('png')) ext = '.png';
+      else if (mimeType.includes('webp')) ext = '.webp';
+      else ext = '.jpg';
+    }
 
-    // Delays for 3 automatic retries with exponential backoff: 2s, 4s, and 8s
-    const retryDelaysMs = [2000, 4000, 8000];
-    let lastError: any = null;
+    const tempFileName = `bill_ocr_${Date.now()}_${Math.random().toString(36).substring(2, 8)}${ext}`;
+    const tempFilePath = path.join(os.tmpdir(), tempFileName);
 
-    // Up to 1 initial attempt + 3 retries = 4 total attempts
-    for (let attempt = 0; attempt <= retryDelaysMs.length; attempt++) {
-      try {
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                {
-                  inlineData: {
-                    mimeType,
-                    data: base64Data,
-                  },
-                },
-                {
-                  text: prompt,
-                },
-              ],
+    try {
+      await fs.promises.writeFile(tempFilePath, fileBuffer);
+
+      return await new Promise<RawExtractedBill>((resolve, reject) => {
+        const child = spawn(
+          pythonExe,
+          ['-m', 'ocr_service.engine', tempFilePath],
+          {
+            cwd: projectRoot,
+            env: {
+              ...process.env,
+              PYTHONIOENCODING: 'utf-8',
+              GLOG_minloglevel: '2',
+              FLAGS_call_stack_level: '0',
             },
-          ],
-          config: {
-            responseMimeType: 'application/json',
-          },
+          }
+        );
+
+        let stdoutData = '';
+        let stderrData = '';
+
+        child.stdout.on('data', (chunk) => {
+          stdoutData += chunk.toString('utf-8');
         });
 
-        const text = response.text || '';
-        const cleanJson = text.replace(/```json/gi, '').replace(/```/g, '').trim();
-        return JSON.parse(cleanJson);
-      } catch (err: any) {
-        lastError = err;
+        child.stderr.on('data', (chunk) => {
+          const text = chunk.toString('utf-8');
+          stderrData += text;
 
-        // Permanent errors (invalid key, bad model): Do NOT retry!
-        if (isPermanentGeminiError(err)) {
-          console.error(`[BillOcrService] Permanent Gemini error encountered (${err.message}). Aborting retries.`);
-          throw err;
+          if (scanId) {
+            const lines = text.split('\n');
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed) continue;
+
+              if (trimmed.includes('[DocLoader] Rasterized PDF page')) {
+                const match = trimmed.match(/page (\d+\/\d+)/i);
+                scanProgressService.setStep(
+                  scanId,
+                  0,
+                  `Rasterizing PDF ${match ? `page ${match[1]}` : 'pages'} for deep learning analysis...`
+                );
+              } else if (trimmed.includes('[PaddleOCR] Initializing PaddleOCR')) {
+                scanProgressService.setStep(
+                  scanId,
+                  1,
+                  'Loading local deep learning PaddleOCR models into memory...'
+                );
+              } else if (trimmed.includes('[PaddleOCR] Processing page')) {
+                const match = trimmed.match(/page (\d+\/\d+)/i);
+                scanProgressService.setStep(
+                  scanId,
+                  1,
+                  `Analyzing text and layout ${match ? `on page ${match[1]}` : ''}...`
+                );
+              } else if (trimmed.includes('[PaddleOCR] Text detection completed')) {
+                const match = trimmed.match(/(\d+) bounding box/i);
+                scanProgressService.setStep(
+                  scanId,
+                  1,
+                  `Detected ${match ? `${match[1]} text regions` : 'text'}. Running character recognition...`
+                );
+              } else if (trimmed.includes('[PaddleOCR] Text recognition completed')) {
+                scanProgressService.setStep(
+                  scanId,
+                  2,
+                  'Character recognition complete. Structuring invoice lines and medicine fields...'
+                );
+              } else if (trimmed.includes('[PaddleOCR] Starting deterministic invoice parser')) {
+                scanProgressService.setStep(
+                  scanId,
+                  2,
+                  'Parsing invoice items, batch numbers, and prices...'
+                );
+              }
+            }
+          }
+        });
+
+        child.on('error', (err) => {
+          reject(err);
+        });
+
+        child.on('close', (code) => {
+          if (code !== 0) {
+            const errSnippet = stderrData.trim().slice(-400) || `Process exited with code ${code}`;
+            return reject(new Error(`Local OCR process failed (code ${code}): ${errSnippet}`));
+          }
+
+          try {
+            const stdoutStr = stdoutData.trim();
+            let parsed: any = null;
+
+            try {
+              parsed = JSON.parse(stdoutStr);
+            } catch {
+              const startIdx = stdoutStr.indexOf('{');
+              const endIdx = stdoutStr.lastIndexOf('}');
+              if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+                parsed = JSON.parse(stdoutStr.substring(startIdx, endIdx + 1));
+              } else {
+                return reject(new Error(`Engine returned non-JSON output: ${stdoutStr.slice(0, 300)}`));
+              }
+            }
+
+            if (parsed.error) {
+              return reject(new Error(parsed.error));
+            }
+
+            resolve(parsed as RawExtractedBill);
+          } catch (err) {
+            reject(err);
+          }
+        });
+      });
+    } finally {
+      // Always cleanup temporary file
+      try {
+        if (fs.existsSync(tempFilePath)) {
+          await fs.promises.unlink(tempFilePath);
         }
-
-        // Transient errors (503, 429, timeout): Retry with exponential backoff
-        if (isTransientGeminiError(err) && attempt < retryDelaysMs.length) {
-          const delay = retryDelaysMs[attempt];
-          console.warn(
-            `[BillOcrService] Gemini returned temporary demand/rate-limit error. Retrying in ${delay / 1000}s (retry ${attempt + 1}/${retryDelaysMs.length})...`
-          );
-          await new Promise((r) => setTimeout(r, delay));
-          continue;
-        }
-
-        // If not transient or retries exhausted, throw
-        throw err;
+      } catch {
+        // Ignore temporary file cleanup errors
       }
     }
-
-    throw lastError || new Error('Gemini extraction failed after retries.');
-  }
-
-  /**
-   * OpenAI Vision fallback
-   */
-  private async extractWithOpenAI(fileBuffer: Buffer, mimeType: string): Promise<RawExtractedBill> {
-    const base64Data = fileBuffer.toString('base64');
-    const dataUrl = `data:${mimeType};base64,${base64Data}`;
-
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${envConfig.openaiApiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        response_format: { type: 'json_object' },
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are a pharmacy invoice parser. Extract supplierName, invoiceNumber, invoiceDate (YYYY-MM-DD), totalAmount, and items array with name, genericName, category, unit, batchNumber, quantity, purchasePrice, sellingPrice, mfgDate, expiryDate. Never invent batch numbers or expiry dates; return null if absent. Respond ONLY with valid JSON.',
-          },
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: 'Extract the pharmaceutical purchase bill data into JSON format.',
-              },
-              {
-                type: 'image_url',
-                image_url: { url: dataUrl },
-              },
-            ],
-          },
-        ],
-      }),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`OpenAI API responded with status ${res.status}: ${errText}`);
-    }
-
-    const result = (await res.json()) as any;
-    const content = result.choices?.[0]?.message?.content || '{}';
-    return JSON.parse(content);
   }
 
   /**
    * Intelligent Rule-based / Sample Bill fallback parser
-   * Parses text content or provides structured sample data if an invoice is being tested
+   * Provides structured sample data when user clicks "Try Sample Purchase Bill"
    */
   private extractWithRuleBasedParser(fileBuffer: Buffer, fileName: string): RawExtractedBill {
     const textContent = fileBuffer.toString('utf-8');
 
-    // Check if uploaded text file contains formatted invoice lines
     if (textContent.includes('INVOICE') || textContent.includes('Bill') || textContent.includes('Supplier')) {
       const parsed = this.parseRawInvoiceText(textContent);
       if (parsed.items.length > 0) return parsed;
     }
 
-    // Default realistic sample purchase bill for immediate zero-config testing
     const today = new Date();
     const invoiceNum = `INV-${today.getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
     const dateStr = today.toISOString().split('T')[0];
@@ -497,38 +573,66 @@ CRITICAL PHARMACEUTICAL RULES:
   }
 
   /**
+   * Pre-indexes existing medicines into a map and pre-normalized item list
+   * to enable instant O(1) exact matching and avoid repetitive regex evaluation in loops.
+   */
+  public buildCatalogIndex(medicines: (Medicine | MedicineWithBatches)[]): {
+    exactMap: Map<string, Medicine | MedicineWithBatches>;
+    items: IndexedMedicine[];
+  } {
+    const exactMap = new Map<string, Medicine | MedicineWithBatches>();
+    const items: IndexedMedicine[] = [];
+
+    for (const m of medicines) {
+      const cleanName = this.normalizeMedicineName(m.name);
+      const cleanGeneric = m.genericName ? this.normalizeMedicineName(m.genericName) : null;
+      if (!exactMap.has(cleanName)) {
+        exactMap.set(cleanName, m);
+      }
+      items.push({ medicine: m, cleanName, cleanGeneric });
+    }
+
+    return { exactMap, items };
+  }
+
+  /**
+   * Fast medicine matching against pre-indexed catalog structures.
+   * Preserves exact, contains, and generic matching priorities without regex repetition.
+   */
+  public matchIndexedMedicine(
+    rawName: string,
+    exactMap: Map<string, Medicine | MedicineWithBatches>,
+    items: IndexedMedicine[]
+  ): Medicine | MedicineWithBatches | null {
+    if (!rawName || items.length === 0) return null;
+    const cleanRaw = this.normalizeMedicineName(rawName);
+
+    // 1. Exact match via O(1) lookup
+    const exact = exactMap.get(cleanRaw);
+    if (exact) return exact;
+
+    // 2. Starts with / contains match (pre-normalized strings, no regex in loop)
+    const subMatch = items.find((it) => it.cleanName.includes(cleanRaw) || cleanRaw.includes(it.cleanName));
+    if (subMatch) return subMatch.medicine;
+
+    // 3. Generic name match (pre-normalized strings, no regex in loop)
+    const genericMatch = items.find((it) => it.cleanGeneric && cleanRaw.includes(it.cleanGeneric));
+    if (genericMatch) return genericMatch.medicine;
+
+    return null;
+  }
+
+  /**
    * Matches an extracted medicine name to the existing catalog.
+   * Backward-compatible interface for callers providing an un-indexed array.
    */
   public matchMedicine(
     rawName: string,
-    existingMedicines: MedicineWithBatches[]
-  ): MedicineWithBatches | null {
+    existingMedicines: (Medicine | MedicineWithBatches)[]
+  ): (Medicine | MedicineWithBatches) | null {
     if (!rawName || existingMedicines.length === 0) return null;
-
-    const cleanRaw = this.normalizeMedicineName(rawName);
-
-    // 1. Exact match
-    const exact = existingMedicines.find(
-      (m) => this.normalizeMedicineName(m.name) === cleanRaw
-    );
-    if (exact) return exact;
-
-    // 2. Starts with / contains match
-    const subMatch = existingMedicines.find((m) => {
-      const cleanM = this.normalizeMedicineName(m.name);
-      return cleanM.includes(cleanRaw) || cleanRaw.includes(cleanM);
-    });
-    if (subMatch) return subMatch;
-
-    // 3. Generic name match
-    const genericMatch = existingMedicines.find((m) => {
-      if (!m.genericName) return false;
-      const cleanG = this.normalizeMedicineName(m.genericName);
-      return cleanRaw.includes(cleanG);
-    });
-    if (genericMatch) return genericMatch;
-
-    return null;
+    const { exactMap, items } = this.buildCatalogIndex(existingMedicines);
+    return this.matchIndexedMedicine(rawName, exactMap, items);
   }
 
   /**

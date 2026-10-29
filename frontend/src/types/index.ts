@@ -551,6 +551,10 @@ export interface ExtractedBillItem {
   quantity?: number | null;
   purchasePrice?: number | null;
   sellingPrice?: number | null;
+  lineAmount?: number | null;
+  needsVerification?: boolean;
+  verificationReason?: string | null;
+  sNo?: number | null;
   mfgDate?: string | null;
   expiryDate?: string | null;
   category?: string;
@@ -571,8 +575,18 @@ export interface ExtractedBillData {
   confidence: 'high' | 'medium' | 'low';
   warnings: string[];
   scanId?: string;
-  ocrText?: string;
-  fieldEvidence?: Record<string, { value: any; status: string; sourceText?: string }>;
+}
+
+export interface ScanProgressState {
+  scanId: string;
+  stepIndex: number; // 0: Prep/Raster, 1: PaddleOCR, 2: Parser, 3: Catalog Validation, 4: Done
+  stepName: string;
+  status: 'processing' | 'completed' | 'error';
+  message: string;
+  medicinesExtracted?: number;
+  totalTimeMs?: number;
+  error?: string;
+  updatedAt: number;
 }
 
 export interface ConfirmBillItemInput {

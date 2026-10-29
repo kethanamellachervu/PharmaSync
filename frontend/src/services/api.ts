@@ -29,6 +29,7 @@ import {
   ReorderUrgency,
   ReviewStatus,
   ExtractedBillData,
+  ScanProgressState,
   ConfirmBillInput,
   ConfirmBillResult,
   MlDatasetInfo,
@@ -390,7 +391,7 @@ export const apiService = {
           formData,
           {
             headers: { 'Content-Type': 'multipart/form-data' },
-            timeout: 60000,
+            timeout: 0, // No client timeout; allow long-running deep learning OCR to complete
           }
         );
         return response.data.data;
@@ -399,13 +400,24 @@ export const apiService = {
           '/purchases/scan-bill',
           { ...fileOrPayload, scanId },
           {
-            timeout: 60000,
+            timeout: 0, // No client timeout; allow long-running deep learning OCR to complete
           }
         );
         return response.data.data;
       }
     } catch (err) {
       return handleApiError(err, 'Failed to scan and extract purchase bill data.');
+    }
+  },
+
+  async getScanProgress(scanId: string): Promise<ScanProgressState | null> {
+    try {
+      const response = await apiClient.get<{ status: string; data: ScanProgressState }>(
+        `/purchases/scan-progress/${encodeURIComponent(scanId)}`
+      );
+      return response.data.data;
+    } catch {
+      return null;
     }
   },
 

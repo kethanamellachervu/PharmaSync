@@ -3,6 +3,30 @@ import { envConfig } from './env.js';
 
 let supabaseInstance: SupabaseClient | null = null;
 
+export const DEFAULT_DB_TIMEOUT_MS = 3500;
+
+/**
+ * Wraps a promise or Supabase query with a strict timeout.
+ */
+export async function withDbTimeout<T>(
+  promiseOrQuery: Promise<T> | PromiseLike<T>,
+  timeoutMs: number = DEFAULT_DB_TIMEOUT_MS,
+  operationName: string = 'Database operation'
+): Promise<T> {
+  let timeoutId: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`${operationName} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([Promise.resolve(promiseOrQuery), timeoutPromise]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 /**
  * Initializes and returns the singleton Supabase client instance.
  */
@@ -26,6 +50,18 @@ export function getSupabaseClient(): SupabaseClient | null {
       auth: {
         persistSession: false,
         autoRefreshToken: false,
+      },
+      global: {
+        fetch: (url, options) => {
+          // Guard all Supabase HTTP requests with an abort signal timeout
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), DEFAULT_DB_TIMEOUT_MS);
+          const signal = options?.signal
+            ? AbortSignal.any([options.signal, controller.signal])
+            : controller.signal;
+
+          return fetch(url, { ...options, signal }).finally(() => clearTimeout(timer));
+        },
       },
     });
     return supabaseInstance;
@@ -64,9 +100,11 @@ export async function testSupabaseConnection(): Promise<{
 
   const start = Date.now();
   try {
-    const { error } = await client
-      .from('medicines')
-      .select('id', { count: 'exact', head: true });
+    const { error } = await withDbTimeout(
+      client.from('medicines').select('id', { count: 'exact', head: true }),
+      2500,
+      'Supabase connectivity check'
+    );
 
     const latencyMs = Date.now() - start;
 

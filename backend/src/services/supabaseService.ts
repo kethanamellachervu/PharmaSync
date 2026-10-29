@@ -1,4 +1,4 @@
-import { getSupabaseClient, testSupabaseConnection } from '../config/supabase.js';
+import { getSupabaseClient, testSupabaseConnection, withDbTimeout, DEFAULT_DB_TIMEOUT_MS } from '../config/supabase.js';
 import {
   Medicine,
   MedicineBatch,
@@ -142,13 +142,23 @@ export class SupabaseService {
   // ---------------------------------------------------------------------------
   public async getShopSettings(): Promise<ShopSettings> {
     const client = this.getClient();
-    const { data, error } = await client
-      .from('shop_settings')
-      .select('*')
-      .order('updated_at', { ascending: false })
-      .limit(1);
+    let data: any[] | null = null;
+    try {
+      const res = await withDbTimeout(
+        client
+          .from('shop_settings')
+          .select('*')
+          .order('updated_at', { ascending: false })
+          .limit(1),
+        DEFAULT_DB_TIMEOUT_MS,
+        'getShopSettings'
+      );
+      data = res.data;
+    } catch {
+      data = null;
+    }
 
-    if (error || !data || data.length === 0) {
+    if (!data || data.length === 0) {
       // Default shop settings
       return {
         shopName: 'Sri Sai Medical & General Store',
@@ -193,14 +203,40 @@ export class SupabaseService {
   // ---------------------------------------------------------------------------
   // MEDICINES & BATCHES
   // ---------------------------------------------------------------------------
+  /**
+   * Lightweight catalog query specifically for OCR and bill validation.
+   * Fetches only master medicine product info without joining batches.
+   */
+  public async getCatalogMedicines(): Promise<Medicine[]> {
+    const client = this.getClient();
+    const t0 = Date.now();
+    const { data, error } = await withDbTimeout(
+      client
+        .from('medicines')
+        .select('id, name, generic_name, category, manufacturer, description, unit, min_stock_level, purchase_price, selling_price, created_at, updated_at')
+        .order('name', { ascending: true }),
+      DEFAULT_DB_TIMEOUT_MS,
+      'Fetch catalog medicines'
+    );
+
+    if (error) throw new Error(`Supabase query error: ${error.message}`);
+    const duration = Date.now() - t0;
+    console.log(`[CatalogValidation] Fetched ${data?.length || 0} catalog medicines from Supabase in ${duration}ms`);
+    return (data || []).map(mapMedicine);
+  }
+
   public async getAllMedicines(): Promise<MedicineWithBatches[]> {
     const client = this.getClient();
     const settings = await this.getShopSettings();
 
-    const [medRes, batchRes] = await Promise.all([
-      client.from('medicines').select('*').order('name', { ascending: true }),
-      client.from('medicine_batches').select('*').order('expiry_date', { ascending: true }),
-    ]);
+    const [medRes, batchRes] = await withDbTimeout(
+      Promise.all([
+        client.from('medicines').select('*').order('name', { ascending: true }),
+        client.from('medicine_batches').select('*').order('expiry_date', { ascending: true }),
+      ]),
+      DEFAULT_DB_TIMEOUT_MS,
+      'getAllMedicines'
+    );
 
     if (medRes.error) throw new Error(`Supabase query error: ${medRes.error.message}`);
     if (batchRes.error) throw new Error(`Supabase query error: ${batchRes.error.message}`);
@@ -827,6 +863,36 @@ export class SupabaseService {
     };
   }
 
+  /**
+   * Lightweight supplier query specifically for OCR and bill matching.
+   * Avoids pulling all purchase records to calculate statistics.
+   */
+  public async getCatalogSuppliers(): Promise<Supplier[]> {
+    const client = this.getClient();
+    const t0 = Date.now();
+    const { data, error } = await withDbTimeout(
+      client.from('suppliers').select('id, name, phone, email, address, created_at, updated_at').order('name', { ascending: true }),
+      DEFAULT_DB_TIMEOUT_MS,
+      'Fetch catalog suppliers'
+    );
+
+    if (error) throw new Error(`Failed to fetch catalog suppliers: ${error.message}`);
+    const duration = Date.now() - t0;
+    console.log(`[CatalogValidation] Fetched ${data?.length || 0} catalog suppliers from Supabase in ${duration}ms`);
+    return (data || []).map((r) => ({
+      id: r.id,
+      name: r.name,
+      phone: r.phone || '',
+      email: r.email || undefined,
+      address: r.address || undefined,
+      status: 'Active',
+      totalPurchases: 0,
+      rating: 4.5,
+      createdAt: new Date(r.created_at).toISOString(),
+      updatedAt: new Date(r.updated_at).toISOString(),
+    }));
+  }
+
   public async getAllSuppliers(search?: string): Promise<Supplier[]> {
     const client = this.getClient();
     let query = client.from('suppliers').select('*').order('name', { ascending: true });
@@ -836,10 +902,14 @@ export class SupabaseService {
       query = query.or(`name.ilike.${q},contact_person.ilike.${q},phone.ilike.${q},email.ilike.${q}`);
     }
 
-    const [suppRes, purchRes] = await Promise.all([
-      query,
-      client.from('purchases').select('id, supplier_id, total_amount, created_at').order('created_at', { ascending: false }),
-    ]);
+    const [suppRes, purchRes] = await withDbTimeout(
+      Promise.all([
+        query,
+        client.from('purchases').select('id, supplier_id, total_amount, created_at').order('created_at', { ascending: false }),
+      ]),
+      DEFAULT_DB_TIMEOUT_MS,
+      'getAllSuppliers'
+    );
 
     if (suppRes.error) throw new Error(`Failed to fetch suppliers: ${suppRes.error.message}`);
     const purchases = purchRes.data || [];
@@ -2257,24 +2327,15 @@ export class SupabaseService {
       }
     }
 
-    // 3. Process each item: create/match medicine, upsert batch, record stock movement
+    // 3. Process items in batched operations
+    const tStart = Date.now();
     const newMedicinesCreated: { id: string; name: string; category: string }[] = [];
     const batchesCreated: { id: string; medicineId: string; batchNumber: string; quantity: number }[] = [];
-    const preparedPurchaseItems: {
-      medicineId: string;
-      batchId?: string;
-      batchNumber: string;
-      quantity: number;
-      purchasePrice: number;
-      subtotal: number;
-      expiryDate: string;
-      mfgDate?: string;
-    }[] = [];
-
     let totalQuantity = 0;
     let totalAmount = 0;
     const todayStr = new Date().toISOString().split('T')[0];
 
+    // 3a. In-memory pre-validation of all items
     for (const item of data.items) {
       const qty = Math.round(Number(item.quantity));
       if (!qty || qty <= 0) {
@@ -2297,31 +2358,98 @@ export class SupabaseService {
       }
 
       if (expiry < todayStr) {
-        throw new Error(`Medicine "${item.name}" batch ${batchNum} has an expired date (${expiry}). Cannot intake expired inventory.`);
+        throw new Error(
+          `Medicine "${item.name}" batch ${batchNum} has an expired date (${expiry}). Cannot intake expired inventory.`
+        );
       }
+    }
 
-      let medicineId = item.medicineId;
+    // 3b. Batched Medicine Resolution
+    const tMed0 = Date.now();
+    const providedMedIds = Array.from(
+      new Set(data.items.map((it) => it.medicineId).filter((id): id is string => Boolean(id)))
+    );
+    const itemNamesToLookup = Array.from(new Set(data.items.map((it) => it.name.trim())));
 
-      // Find or create medicine
-      if (!medicineId || item.isNewMedicine) {
-        // Double check if exact medicine already exists by name
-        const { data: existingMed } = await client
+    // Fetch existing candidate medicines in a small number of batched queries
+    const existingMedsMap = new Map<string, { id: string; name: string; category: string; unit: string; sellingPrice: number }>();
+
+    // 1) By provided IDs
+    if (providedMedIds.length > 0) {
+      const { data: medsById } = await withDbTimeout(
+        client
           .from('medicines')
           .select('id, name, category, unit, selling_price')
-          .ilike('name', item.name.trim())
-          .maybeSingle();
+          .in('id', providedMedIds),
+        DEFAULT_DB_TIMEOUT_MS,
+        'Batch fetch medicines by ID'
+      );
+      for (const m of medsById || []) {
+        existingMedsMap.set(m.id, {
+          id: m.id,
+          name: m.name,
+          category: m.category,
+          unit: m.unit,
+          sellingPrice: Number(m.selling_price),
+        });
+        existingMedsMap.set(m.name.trim().toLowerCase(), {
+          id: m.id,
+          name: m.name,
+          category: m.category,
+          unit: m.unit,
+          sellingPrice: Number(m.selling_price),
+        });
+      }
+    }
 
-        if (existingMed) {
-          medicineId = existingMed.id;
-        } else {
-          const sellPrice = item.sellingPrice && Number(item.sellingPrice) > 0
+    // 2) By item names
+    if (itemNamesToLookup.length > 0) {
+      const { data: medsByName } = await withDbTimeout(
+        client
+          .from('medicines')
+          .select('id, name, category, unit, selling_price')
+          .in('name', itemNamesToLookup),
+        DEFAULT_DB_TIMEOUT_MS,
+        'Batch fetch medicines by Name'
+      );
+      for (const m of medsByName || []) {
+        const itemObj = {
+          id: m.id,
+          name: m.name,
+          category: m.category,
+          unit: m.unit,
+          sellingPrice: Number(m.selling_price),
+        };
+        existingMedsMap.set(m.id, itemObj);
+        existingMedsMap.set(m.name.trim().toLowerCase(), itemObj);
+      }
+    }
+
+    // Identify new medicines that genuinely need insertion
+    const resolvedItemMedIds: string[] = [];
+    for (const item of data.items) {
+      const cleanName = item.name.trim();
+      const lowerName = cleanName.toLowerCase();
+      let matched = item.medicineId ? existingMedsMap.get(item.medicineId) : undefined;
+      if (!matched) {
+        matched = existingMedsMap.get(lowerName);
+      }
+
+      if (matched) {
+        resolvedItemMedIds.push(matched.id);
+      } else {
+        // Create new medicine
+        const pPrice = Number(item.purchasePrice);
+        const sellPrice =
+          item.sellingPrice && Number(item.sellingPrice) > 0
             ? Number(item.sellingPrice)
             : Math.round(pPrice * 1.3 * 100) / 100 || 10;
 
-          const { data: newMed, error: newMedErr } = await client
+        const { data: newMed, error: newMedErr } = await withDbTimeout(
+          client
             .from('medicines')
             .insert({
-              name: item.name.trim(),
+              name: cleanName,
               generic_name: item.genericName?.trim() || null,
               category: item.category?.trim() || 'General',
               manufacturer: item.manufacturer?.trim() || null,
@@ -2332,66 +2460,128 @@ export class SupabaseService {
               selling_price: sellPrice,
             })
             .select()
-            .single();
+            .single(),
+          DEFAULT_DB_TIMEOUT_MS,
+          `Insert medicine "${cleanName}"`
+        );
 
-          if (newMedErr || !newMed) {
-            throw new Error(`Failed to create medicine "${item.name}": ${newMedErr?.message}`);
-          }
-
-          medicineId = newMed.id;
-          newMedicinesCreated.push({ id: newMed.id, name: newMed.name, category: newMed.category });
+        if (newMedErr || !newMed) {
+          throw new Error(`Failed to create medicine "${cleanName}": ${newMedErr?.message}`);
         }
-      }
 
-      // Upsert batch
-      const { data: existingBatch } = await client
+        const newObj = {
+          id: newMed.id,
+          name: newMed.name,
+          category: newMed.category,
+          unit: newMed.unit,
+          sellingPrice: Number(newMed.selling_price),
+        };
+        existingMedsMap.set(newMed.id, newObj);
+        existingMedsMap.set(lowerName, newObj);
+        newMedicinesCreated.push({ id: newMed.id, name: newMed.name, category: newMed.category });
+        resolvedItemMedIds.push(newMed.id);
+      }
+    }
+    console.log(`[ConfirmBill] Resolved ${data.items.length} medicines in ${Date.now() - tMed0}ms (Created: ${newMedicinesCreated.length})`);
+
+    // 3c. Batched Batch Resolution
+    const tBatch0 = Date.now();
+    const distinctResolvedMedIds = Array.from(new Set(resolvedItemMedIds));
+    const { data: existingBatchesData } = await withDbTimeout(
+      client
         .from('medicine_batches')
         .select('*')
-        .eq('medicine_id', medicineId)
-        .eq('batch_number', batchNum)
-        .maybeSingle();
+        .in('medicine_id', distinctResolvedMedIds),
+      DEFAULT_DB_TIMEOUT_MS,
+      'Batch fetch existing medicine batches'
+    );
 
+    const existingBatchesMap = new Map<string, any>();
+    for (const b of existingBatchesData || []) {
+      existingBatchesMap.set(`${b.medicine_id}:${b.batch_number.trim().toUpperCase()}`, b);
+    }
+
+    const resolvedBatchIds: string[] = [];
+    const stockMovementsToInsert: any[] = [];
+    const preparedPurchaseItems: {
+      medicineId: string;
+      batchId?: string;
+      batchNumber: string;
+      quantity: number;
+      purchasePrice: number;
+      subtotal: number;
+      expiryDate: string;
+      mfgDate?: string;
+    }[] = [];
+
+    for (let i = 0; i < data.items.length; i++) {
+      const item = data.items[i];
+      const medicineId = resolvedItemMedIds[i];
+      const qty = Math.round(Number(item.quantity));
+      const pPrice = Number(item.purchasePrice);
+      const batchNum = (item.batchNumber || '').trim().toUpperCase();
+      const expiry = (item.expiryDate || '').trim();
+      const subtotal = Math.round(qty * pPrice * 100) / 100;
+
+      totalQuantity += qty;
+      totalAmount += subtotal;
+
+      const batchKey = `${medicineId}:${batchNum}`;
+      const existingBatch = existingBatchesMap.get(batchKey);
       let batchId: string;
+
       if (existingBatch) {
         batchId = existingBatch.id;
-        await client
-          .from('medicine_batches')
-          .update({
-            quantity: Number(existingBatch.quantity) + qty,
-            expiry_date: expiry,
-            mfg_date: item.mfgDate || existingBatch.mfg_date,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', batchId);
+        const newQty = Number(existingBatch.quantity) + qty;
+        await withDbTimeout(
+          client
+            .from('medicine_batches')
+            .update({
+              quantity: newQty,
+              expiry_date: expiry,
+              mfg_date: item.mfgDate || existingBatch.mfg_date,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', batchId),
+          DEFAULT_DB_TIMEOUT_MS,
+          `Update batch ${batchNum}`
+        );
+        // Update local map to reflect new quantity
+        existingBatch.quantity = newQty;
       } else {
-        const { data: newBatch, error: batchErr } = await client
-          .from('medicine_batches')
-          .insert({
-            medicine_id: medicineId,
-            batch_number: batchNum,
-            quantity: qty,
-            expiry_date: expiry,
-            mfg_date: item.mfgDate || null,
-          })
-          .select()
-          .single();
+        const { data: newBatch, error: batchErr } = await withDbTimeout(
+          client
+            .from('medicine_batches')
+            .insert({
+              medicine_id: medicineId,
+              batch_number: batchNum,
+              quantity: qty,
+              expiry_date: expiry,
+              mfg_date: item.mfgDate || null,
+            })
+            .select()
+            .single(),
+          DEFAULT_DB_TIMEOUT_MS,
+          `Insert batch ${batchNum}`
+        );
 
         if (batchErr || !newBatch) {
           throw new Error(`Failed to create batch "${batchNum}" for "${item.name}": ${batchErr?.message}`);
         }
         batchId = newBatch.id;
+        existingBatchesMap.set(batchKey, newBatch);
       }
 
+      resolvedBatchIds.push(batchId);
       batchesCreated.push({
         id: batchId,
-        medicineId: medicineId!,
+        medicineId,
         batchNumber: batchNum,
         quantity: qty,
       });
 
-      // Record stock movement audit log
-      await client.from('stock_movements').insert({
-        medicine_id: medicineId!,
+      stockMovementsToInsert.push({
+        medicine_id: medicineId,
         batch_id: batchId,
         batch_number: batchNum,
         movement_type: 'Stock Added',
@@ -2399,12 +2589,8 @@ export class SupabaseService {
         reason: `Purchase Bill #${cleanInvoiceNumber} (AI Scanned entry)`,
       });
 
-      const subtotal = Math.round(qty * pPrice * 100) / 100;
-      totalQuantity += qty;
-      totalAmount += subtotal;
-
       preparedPurchaseItems.push({
-        medicineId: medicineId!,
+        medicineId,
         batchId,
         batchNumber: batchNum,
         quantity: qty,
@@ -2414,62 +2600,92 @@ export class SupabaseService {
         mfgDate: item.mfgDate,
       });
     }
+    console.log(`[ConfirmBill] Resolved ${batchesCreated.length} batches in ${Date.now() - tBatch0}ms`);
+
+    // 3d. Batched Stock Movements Insert
+    const tStock0 = Date.now();
+    if (stockMovementsToInsert.length > 0) {
+      const { error: stockErr } = await withDbTimeout(
+        client.from('stock_movements').insert(stockMovementsToInsert),
+        DEFAULT_DB_TIMEOUT_MS,
+        'Batch insert stock movements'
+      );
+      if (stockErr) {
+        console.warn(`[ConfirmBill] Stock movement batch insert warning: ${stockErr.message}`);
+      }
+      console.log(`[ConfirmBill] Inserted ${stockMovementsToInsert.length} stock movements in ${Date.now() - tStock0}ms`);
+    }
 
     // 4. Create Purchase record
-    const { count } = await client.from('purchases').select('*', { count: 'exact', head: true });
+    const { count } = await withDbTimeout(
+      client.from('purchases').select('*', { count: 'exact', head: true }),
+      DEFAULT_DB_TIMEOUT_MS,
+      'Get purchase count'
+    );
     const poNumber = `INV-${cleanInvoiceNumber}-${1001 + (count || 0)}`;
 
-    const { data: poRow, error: poErr } = await client
-      .from('purchases')
-      .insert({
-        purchase_number: poNumber,
-        supplier_id: supplierId,
-        total_quantity: totalQuantity,
-        total_amount: Math.round(totalAmount * 100) / 100,
-        notes: `AI Scanned Bill Invoice #${cleanInvoiceNumber}${data.notes ? ` | ${data.notes.trim()}` : ''}`,
-      })
-      .select()
-      .single();
+    const { data: poRow, error: poErr } = await withDbTimeout(
+      client
+        .from('purchases')
+        .insert({
+          purchase_number: poNumber,
+          supplier_id: supplierId,
+          total_quantity: totalQuantity,
+          total_amount: Math.round(totalAmount * 100) / 100,
+          notes: `AI Scanned Bill Invoice #${cleanInvoiceNumber}${data.notes ? ` | ${data.notes.trim()}` : ''}`,
+        })
+        .select()
+        .single(),
+      DEFAULT_DB_TIMEOUT_MS,
+      'Create purchase record'
+    );
 
     if (poErr || !poRow) {
       throw new Error(`Failed to create purchase order: ${poErr?.message}`);
     }
 
-    // 5. Insert purchase items
-    const insertedItems: PurchaseItem[] = [];
-    for (const pItem of preparedPurchaseItems) {
-      const { data: itemRow, error: itemErr } = await client
-        .from('purchase_items')
-        .insert({
-          purchase_id: poRow.id,
-          medicine_id: pItem.medicineId,
-          batch_id: pItem.batchId,
-          batch_number: pItem.batchNumber,
-          quantity: pItem.quantity,
-          purchase_price: pItem.purchasePrice,
-          subtotal: pItem.subtotal,
-          expiry_date: pItem.expiryDate,
-          mfg_date: pItem.mfgDate || null,
-        })
-        .select('*, medicines(name)')
-        .single();
+    // 5. Batched Insert of Purchase Items
+    const tItems0 = Date.now();
+    const purchaseItemRows = preparedPurchaseItems.map((p) => ({
+      purchase_id: poRow.id,
+      medicine_id: p.medicineId,
+      batch_id: p.batchId,
+      batch_number: p.batchNumber,
+      quantity: p.quantity,
+      purchase_price: p.purchasePrice,
+      subtotal: p.subtotal,
+      expiry_date: p.expiryDate,
+      mfg_date: p.mfgDate || null,
+    }));
 
-      if (!itemErr && itemRow) {
-        insertedItems.push({
-          id: itemRow.id,
-          purchaseId: itemRow.purchase_id,
-          medicineId: itemRow.medicine_id,
-          medicineName: itemRow.medicines?.name || 'Unknown',
-          batchId: itemRow.batch_id || undefined,
-          batchNumber: itemRow.batch_number,
-          quantity: Number(itemRow.quantity),
-          purchasePrice: Number(itemRow.purchase_price),
-          subtotal: Number(itemRow.subtotal),
-          expiryDate: itemRow.expiry_date,
-          mfgDate: itemRow.mfg_date || undefined,
-        });
-      }
+    const { data: insertedItemsData, error: itemsErr } = await withDbTimeout(
+      client
+        .from('purchase_items')
+        .insert(purchaseItemRows)
+        .select('*, medicines(name)'),
+      DEFAULT_DB_TIMEOUT_MS,
+      'Batch insert purchase items'
+    );
+
+    if (itemsErr) {
+      throw new Error(`Failed to save purchase items: ${itemsErr.message}`);
     }
+
+    const insertedItems: PurchaseItem[] = (insertedItemsData || []).map((itemRow: any) => ({
+      id: itemRow.id,
+      purchaseId: itemRow.purchase_id,
+      medicineId: itemRow.medicine_id,
+      medicineName: itemRow.medicines?.name || 'Unknown',
+      batchId: itemRow.batch_id || undefined,
+      batchNumber: itemRow.batch_number,
+      quantity: Number(itemRow.quantity),
+      purchasePrice: Number(itemRow.purchase_price),
+      subtotal: Number(itemRow.subtotal),
+      expiryDate: itemRow.expiry_date,
+      mfgDate: itemRow.mfg_date || undefined,
+    }));
+    console.log(`[ConfirmBill] Inserted ${insertedItems.length} purchase items in ${Date.now() - tItems0}ms`);
+    console.log(`[ConfirmBill] Successfully confirmed bill #${cleanInvoiceNumber} total time: ${Date.now() - tStart}ms`);
 
     const createdPurchase: Purchase = {
       id: poRow.id,
